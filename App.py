@@ -3,38 +3,21 @@ import pandas as pd
 import io
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
-
-st.set_page_config(page_title="MVAC App", layout="wide")
-
-# عرض اللوغو
-try:
-    st.sidebar.image('mvac_logo.png', use_container_width=True)
-except:
-    st.sidebar.title("MVAC")
-
-st.title("❄️ نظام MVAC لإدارة الفواتير")
-
-menu = st.sidebar.radio("القائمة", ["الزبناء", "فاتورة جديدة"])
-
-if 'clients' not in st.session_state:
-    st.session_state.cliimport streamlit as st
-import pandas as pd
-import io
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 
 # 1. إعدادات الصفحة كاملة
 st.set_page_config(page_title="MVAC Pro - Système de Gestion", layout="wide", page_icon="❄️")
 
-# 2. القائمة الجانبية مع اللوغو
+# 2. القائمة الجانبية (Sidebar) مع اللوغو
 with st.sidebar:
     try:
         # كيحاول يقرأ اللوغو اللي رفعتي في GitHub
         st.image("mvac_logo.png", use_container_width=True) 
     except:
+        # في حالة ما لقاش اللوغو كيبان العنوان
         st.title("M-VAC")
     st.markdown("---")
+    # هادي هي اللي كتحكم في الصفحات
     menu = st.radio("القائمة الرئيسية", ["🏠 الصفحة الرئيسية", "👥 إدارة الزبناء", "📄 إنشاء فاتورة جديدة"])
     st.markdown("---")
     st.info("تطبيق MVAC لإدارة خدمات التبريد والتهوية")

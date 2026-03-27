@@ -1,109 +1,57 @@
 import streamlit as st
 import pandas as pd
-import io
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter
+from datetime import datetime
 
-# 1. إعداد الصفحة
-st.set_page_config(page_title="MVAC Pro Gestion", layout="wide", page_icon="❄️")
+# إعدادات الصفحة
+st.set_page_config(page_title="HVAC Manager - إدارة التكييف", layout="wide")
 
-# 2. القائمة الجانبية
-with st.sidebar:
-    try:
-        st.image("mvac_logo.png", use_container_width=True)
-    except:
-        st.title("M-VAC")
-    st.markdown("---")
-    menu = st.radio("القائمة الرئيسية", ["🏠 الرئيسية", "👥 إدارة الزبناء", "📄 إنشاء فاتورة مفصلة"])
+st.title("❄️ نظام إدارة شركة التكييف والتبريد")
+st.sidebar.header("لوحة التحكم")
 
-# 3. تخزين البيانات
-if 'db_clients' not in st.session_state:
-    st.session_state.db_clients = pd.DataFrame(columns=["الاسم/الشركة", "ICE", "الهاتف", "العنوان"])
+# قاعدة بيانات وهمية (تقدر تربطها بملف Excel من بعد)
+if 'inventory' not in st.session_state:
+    st.session_state.inventory = pd.DataFrame([
+        {"القطعة": "غاز R410A (كجم)", "الكمية": 20, "الثمن": 150},
+        {"القطعة": "محرر (Compressor) 12k", "الكمية": 5, "الثمن": 1200},
+        {"القطعة": "أنبوب نحاس 1/4", "الكمية": 50, "الثمن": 40}
+    ])
 
-# --- إدارة الزبناء ---
-if menu == "👥 إدارة الزبناء":
-    st.header("👤 تسجيل زبون جديد")
-    with st.form("client_form", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        name = col1.text_input("اسم الزبون / الشركة")
-        ice = col2.text_input("رقم الـ ICE")
-        phone = col1.text_input("الهاتف")
-        address = col2.text_area("العنوان")
-        if st.form_submit_button("حفظ الزبون"):
-            if name:
-                new_row = {"الاسم/الشركة": name, "ICE": ice, "الهاتف": phone, "العنوان": address}
-                st.session_state.db_clients = pd.concat([st.session_state.db_clients, pd.DataFrame([new_row])], ignore_index=True)
-                st.success(f"تم تسجيل {name}")
+# 1. قسم الفواتير (Invoicing)
+menu = st.sidebar.selectbox("اختر القسم", ["صنع فاتورة", "المخزون", "قائمة الزبناء"])
 
-# --- إنشاء الفاتورة المفصلة ---
-elif menu == "📄 إنشاء فاتورة مفصلة":
-    st.header("📝 إنشاء فاتورة (سلعة + يد عاملة)")
+if menu == "صنع فاتورة":
+    st.header("📄 إنشاء فاتورة جديدة")
     
-    if st.session_state.db_clients.empty:
-        st.warning("⚠️ سجل زبون أولاً.")
-    else:
-        client_name = st.selectbox("اختار الزبون", st.session_state.db_clients["الاسم/الشركة"])
-        
-        st.markdown("### 🛠️ تفاصيل الخدمة والسلعة")
-        col_main1, col_main2 = st.columns(2)
-        
-        with col_main1:
-            st.subheader("📦 السلعة (المواد)")
-            items_desc = st.text_area("وصف السلعة (مثلاً: مواسير، غاز، مكيف...)", placeholder="كل حاجة في سطر")
-            items_price = st.number_input("ثمن السلعة الإجمالي (HT)", min_value=0.0)
-            
-        with col_main2:
-            st.subheader("👷 اليد العاملة")
-            work_desc = st.text_area("وصف العمل (مثلاً: تركيب، صيانة...)", placeholder="تفاصيل الخدمة")
-            work_price = st.number_input("ثمن اليد العاملة (HT)", min_value=0.0)
+    col1, col2 = st.columns(2)
+    with col1:
+        client_name = st.text_input("اسم الزبون")
+        service_type = st.selectbox("نوع الخدمة", ["تركيب جديد", "شحن غاز", "صيانة دورية", "إصلاح عطب"])
+    with col2:
+        date = st.date_input("التاريخ", datetime.now())
+        phone = st.text_input("رقم الهاتف")
 
-        st.markdown("---")
-        st.subheader("💰 الخصم والضرائب")
-        c1, c2 = st.columns(2)
-        discount = c1.number_input("الخصم / الكوميسيون (Remise) بالدرهم", min_value=0.0)
-        tva_choice = c2.checkbox("تطبيق الضريبة (20% TVA)", value=True)
+    st.subheader("التفاصيل والمصاريف")
+    items = st.multiselect("اختر السلع المستعملة من المخزون", st.session_state.inventory["القطعة"])
+    service_price = st.number_input("ثمن اليد العاملة (DH)", min_value=0)
+    
+    if st.button("حساب المجموع وصنع الفاتورة"):
+        total_parts = st.session_state.inventory[st.session_state.inventory["القطعة"].isin(items)]["الثمن"].sum()
+        total_all = total_parts + service_price
+        st.success(f"المجموع الإجمالي هو: {total_all} درهم")
+        st.info(f"الفاتورة جاهزة للزبون: {client_name}")
 
-        # الحسابات
-        total_ht = (items_price + work_price) - discount
-        tva_amount = total_ht * 0.20 if tva_choice else 0
-        total_ttc = total_ht + tva_amount
+# 2. قسم المخزون (Inventory)
+elif menu == "المخزون":
+    st.header("📦 إدارة المخزون")
+    st.table(st.session_state.inventory)
+    
+    st.subheader("تحديث السلع")
+    new_item = st.text_input("إضافة قطعة جديدة")
+    if st.button("إضافة"):
+        st.write("تمت الإضافة بنجاح")
 
-        # عرض النتائج
-        st.info(f"إجمالي HT: {total_ht:,.2f} DH | الضريبة: {tva_amount:,.2f} DH")
-        st.success(f"### المبلغ الإجمالي للأداء (TTC): {total_ttc:,.2f} DH")
+# 3. قائمة الزبناء
+elif menu == "قائمة الزبناء":
+    st.header("👥 سجل الزبناء")
+    st.write("هنا ستظهر قائمة الزبناء السابقين وعناوينهم.")
 
-        if st.button("🚀 توليد الفاتورة PDF"):
-            buf = io.BytesIO()
-            p = canvas.Canvas(buf, pagesize=letter)
-            # الرأس
-            p.setFont("Helvetica-Bold", 18)
-            p.drawCentredString(300, 750, "FACTURE MVAC")
-            
-            p.setFont("Helvetica", 12)
-            p.drawString(50, 700, f"Client: {client_name}")
-            p.drawString(50, 680, f"Date: {pd.Timestamp.now().strftime('%Y-%m-%d')}")
-            
-            p.line(50, 660, 550, 660)
-            
-            # الجداول
-            p.drawString(50, 640, "Détails de la Facture:")
-            p.drawString(70, 620, f"- Matériel (السلعة): {items_price:,.2f} DH")
-            p.drawString(70, 600, f"- Main d'œuvre (اليد العاملة): {work_price:,.2f} DH")
-            if discount > 0:
-                p.drawString(70, 580, f"- Remise (خصم): -{discount:,.2f} DH")
-            
-            p.line(50, 560, 550, 560)
-            
-            # المجموع
-            p.setFont("Helvetica-Bold", 12)
-            p.drawString(350, 540, f"Total HT: {total_ht:,.2f} DH")
-            p.drawString(350, 520, f"TVA (20%): {tva_amount:,.2f} DH")
-            p.setFont("Helvetica-Bold", 14)
-            p.drawString(350, 490, f"TOTAL TTC: {total_ttc:,.2f} DH")
-            
-            p.save()
-            st.download_button("📥 تحميل الفاتورة", buf.getvalue(), f"Mvac_Facture_{client_name}.pdf")
-
-else:
-    st.title("🏠 الرئيسية")
-    st.write("مرحباً سفيان في لوحة تحكم MVAC. دبا تقدر تفرق بين السلعة والخدمة وتدير الخصم للزبناء.")

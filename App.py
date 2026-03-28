@@ -5,9 +5,10 @@ from datetime import datetime
 # إعدادات الصفحة
 st.set_page_config(page_title="HVAC Manager - إدارة التكييف", layout="wide")
 
-st.title("❄️ شركة للتكييف و التبريد التجاري M-VAC  
+st.title("❄️ شركة للتكييف و التبريد التجاري 
 نضام تسيير الشركة")
 st.sidebar.header("لوحة التحكم")
+
 
 # قاعدة بيانات وهمية (تقدر تربطها بملف Excel من بعد)
 if 'inventory' not in st.session_state:

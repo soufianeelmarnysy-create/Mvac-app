@@ -5,8 +5,7 @@ from datetime import datetime
 # إعدادات الصفحة
 st.set_page_config(page_title="HVAC Manager - إدارة التكييف", layout="wide")
 
-st.title("❄️ شركة للتكييف و التبريد التجاري 
-نضام تسيير الشركة")
+st.title("❄️ شركة للتكييف و التبريد التجاري نضام تسيير الشركة")
 st.sidebar.header("لوحة التحكم")
 
 

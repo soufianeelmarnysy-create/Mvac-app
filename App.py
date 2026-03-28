@@ -5,7 +5,8 @@ from datetime import datetime
 # إعدادات الصفحة
 st.set_page_config(page_title="HVAC Manager - إدارة التكييف", layout="wide")
 
-st.title("❄️ نظام إدارة شركة التكييف والتبريد")
+st.title("❄️ شركة للتكييف و التبريد التجاري M-VAC  
+نضام تسيير الشركة")
 st.sidebar.header("لوحة التحكم")
 
 # قاعدة بيانات وهمية (تقدر تربطها بملف Excel من بعد)

@@ -8,7 +8,8 @@ st.set_page_config(page_title="MVAC Control Panel", layout="wide")
 # الربط باستخدام ID الملف مباشرة (أضمن طريقة)
 conn = st.connection("gsheets", type=GSheetsConnection)
 # هاد الـ ID جبناه من الرابط ديالك
-SHEET_ID = "1D5ogjG53HMI791W1RfHDEk0ngom0P4uf-cCPWgBjwAs"
+# هاد الرابط "نقي" ما فيه لا gid لا #
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1D5ogjG53HMl791W1RfHDEk0ngom0P4uf-cCPWgBjwAs/edit"
 
 # دالة جلب البيانات
 def get_data():

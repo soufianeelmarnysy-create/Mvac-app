@@ -2,80 +2,140 @@ import streamlit as st
 import pandas as pd
 from streamlit_gsheets import GSheetsConnection
 
-# 🛠️ 1. إعدادات الصفحة (حيدنا الأيقونات البرانية)
-st.set_page_config(page_title="MVAC System", layout="wide", page_icon="❄️")
+# =========================================================
+# 🛠️ 1. الإعدادات والربط (الأساس)
+# =========================================================
+st.set_page_config(page_title="MVAC Pro System", layout="wide", page_icon="❄️")
 
+# الربط بـ Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1D5ogjG53HMI791W1RfHDEk0ngom0P4uf-cCPWgBjwAs/edit"
+SHEET_ID = "1D5ogjG53HMI791W1RfHDEk0ngom0P4uf-cCPWgBjwAs"
 
-# 🔄 2. دالة جلب البيانات مع تنظيفها
-def load_data(sheet_name):
+# دالة ذكية لجلب البيانات (كتفادى خطأ SpreadsheetNotFound)
+def load_data(sheet_name, cols):
     try:
-        # ttl=0 باش يجيب البيانات دابا نيت بلا تعطل
-        df = conn.read(spreadsheet=SHEET_URL, worksheet=sheet_name, ttl=0)
-        # تنظيف العناوين من الفراغات
-        df.columns = df.columns.str.strip()
+        sh = conn.client.open_by_key(SHEET_ID)
+        ws = sh.worksheet(sheet_name)
+        data = ws.get_all_records()
+        df = pd.DataFrame(data)
+        if df.empty: return pd.DataFrame(columns=cols)
+        if "ID" in df.columns:
+            df["ID"] = pd.to_numeric(df["ID"], errors='coerce').fillna(0).astype(int)
         return df
-    except Exception as e:
-        return pd.DataFrame()
+    except:
+        return pd.DataFrame(columns=cols)
 
-# 🧭 3. القائمة الجانبية (Sidebar) نقيّة
+# دالة ذكية للحفظ (الأكثر أماناً)
+def save_data(sheet_name, df):
+    try:
+        sh = conn.client.open_by_key(SHEET_ID)
+        ws = sh.worksheet(sheet_name)
+        ws.clear()
+        ws.update([df.columns.values.tolist()] + df.values.tolist())
+        return True
+    except Exception as e:
+        st.error(f"خطأ في الحفظ: {e}")
+        return False
+
+# =========================================================
+# 🧭 2. القائمة الجانبية (Sidebar)
+# =========================================================
 with st.sidebar:
     st.title("❄️ MVAC SYSTEM")
     st.markdown("---")
-    page = st.radio("اختار الصفحة:", ["👤 إدارة الزبناء", "📦 السلعة والمخزون", "📄 إنشاء Devis/Facture"])
+    page = st.radio("اختار الصفحة:", ["👥 إدارة الزبناء", "📦 السلعة والمخزون", "📄 إنشاء Devis/Facture"])
     st.markdown("---")
-    st.caption("سفيان - نظام تسيير MVAC")
+    st.write("سفيان - نظام تسيير MVAC")
 
 # =========================================================
-# 👤 صفحة الزبناء (الخدمة هنا)
+# 👥 3. صـفـحـة إدارة الـزبـنـاء (Ajouter/Modifier/Supprimer)
 # =========================================================
-if page == "👤 إدارة الزبناء":
-    st.title("👤 إدارة الزبناء")
-    
-    df_c = load_data("Clients")
+if page == "👥 إدارة الزبناء":
+    st.title("👥 إدارة الزبناء")
+    df_c = load_data("Clients", ["ID", "الاسم/الشركة", "النوع", "ICE", "الهاتف", "العنوان", "RIB"])
 
-    # --- 4. الجزء ديال إضافة زبون جديد (ديما باين باش تخدم) ---
-    with st.expander("➕ إضافة زبون جديد", expanded=True):
-        with st.form("add_new_client"):
+    # نظام "الذاكرة" للتعديل
+    if "edit_id_c" not in st.session_state: st.session_state.edit_id_c = None
+
+    # --- خانة الإضافة والتعديل ---
+    with st.expander("📝 إضافة زبون جديد / تعديل بيانات", expanded=(st.session_state.edit_id_c is not None)):
+        with st.form("form_client", clear_on_submit=True):
+            curr = df_c[df_c["ID"] == st.session_state.edit_id_c].iloc[0] if st.session_state.edit_id_c else None
+            
             c1, c2 = st.columns(2)
-            name = c1.text_input("الاسم أو الشركة *")
-            tel = c2.text_input("رقم الهاتف")
-            ice = c1.text_input("ICE")
-            type_c = c2.selectbox("نوع الزبون", ["Particulier", "Société"])
-            addr = st.text_area("العنوان الكامل")
+            name = c1.text_input("الاسم أو الشركة *", value=curr["الاسم/الشركة"] if curr is not None else "")
+            tel = c2.text_input("الهاتف", value=curr["الهاتف"] if curr is not None else "")
+            ice = c1.text_input("ICE", value=curr["ICE"] if curr is not None else "")
+            rib = c2.text_input("RIB", value=curr["RIB"] if curr is not None else "")
+            type_c = st.selectbox("النوع", ["Particulier", "Société"], index=0 if (curr is None or curr["النوع"]=="Particulier") else 1)
+            addr = st.text_area("العنوان الكامل", value=curr["العنوان"] if curr is not None else "")
+
+            # أزرار التحكم في الفورم
+            col_b1, col_b2 = st.columns([1, 4])
+            if col_b1.form_submit_button("حفظ ✅"):
+                if name:
+                    if st.session_state.edit_id_c: # تعديل
+                        df_c.loc[df_c["ID"] == st.session_state.edit_id_c, ["الاسم/الشركة", "الهاتف", "ICE", "RIB", "العنوان", "النوع"]] = [name, tel, ice, rib, addr, type_c]
+                        st.session_state.edit_id_c = None
+                    else: # إضافة
+                        new_id = int(df_c["ID"].max() + 1) if not df_c.empty else 1
+                        new_row = pd.DataFrame([{"ID":new_id, "الاسم/الشركة":name, "الهاتف":tel, "ICE":ice, "RIB":rib, "العنوان":addr, "النوع":type_c}])
+                        df_c = pd.concat([df_c, new_row], ignore_index=True)
+                    
+                    if save_data("Clients", df_c):
+                        st.success("تم الحفظ بنجاح!")
+                        st.rerun()
             
-            submit = st.form_submit_button("تسجيل الزبون في القاعدة ✅")
-            
-            if submit and name:
-                # حساب الـ ID الجديد
-                new_id = int(df_c["ID"].max() + 1) if not df_c.empty and "ID" in df_c.columns else 1
-                new_row = pd.DataFrame([{"ID": new_id, "الاسم/الشركة": name, "النوع": type_c, "ICE": ice, "الهاتف": tel, "العنوان": addr}])
-                
-                # دمج وحفظ
-                df_updated = pd.concat([df_c, new_row], ignore_index=True)
-                conn.update(spreadsheet=SHEET_URL, worksheet="Clients", data=df_updated)
-                st.success(f"تمت إضافة {name} بنجاح!")
+            if st.session_state.edit_id_c and col_b2.form_submit_button("إلغاء التعديل ❌"):
+                st.session_state.edit_id_c = None
                 st.rerun()
 
-    # --- 5. عرض الجدول (فين غاتبان anva) ---
-    st.markdown("### قائمة الزبناء المسجلين")
-    if not df_c.empty:
-        st.dataframe(df_c, use_container_width=True, hide_index=True)
-        
-        # زر المسح (إلى بغيتي تمسح شي حد)
-        st.markdown("---")
-        del_name = st.selectbox("اختار زبون للمسح:", [""] + df_c["الاسم/الشركة"].tolist())
-        if st.button("🗑️ مسح الزبون المختار"):
-            if del_name:
-                df_c = df_c[df_c["الاسم/الشركة"] != del_name]
-                conn.update(spreadsheet=SHEET_URL, worksheet="Clients", data=df_c)
-                st.warning(f"تم مسح {del_name}")
-                st.rerun()
-    else:
-        st.info("الجدول خاوي حالياً. استعمل الفورم اللي فوق باش تزيد أول كليان!")
+    # --- البحث والعرض ---
+    search = st.text_input("🔍 بحث عن زبون:")
+    df_show = df_c[df_c["الاسم/الشركة"].astype(str).str.contains(search, case=False, na=False)] if search else df_c
 
-# الصفحات الأخرى خاوية دابا حتى نساليو مع الكليان
-else:
-    st.title(page)
-    st.info("هاد الصفحة غانكملوها غير نتأكدوا باللي الكليان خدامين ناضي.")
+    st.markdown("---")
+    for i, row in df_show.iterrows():
+        col_name, col_edit, col_del = st.columns([5, 1, 1])
+        col_name.write(f"👤 **{row['الاسم/الشركة']}** | 📞 {row['الهاتف']}")
+        if col_edit.button("📝 تعديل", key=f"ed_c_{row['ID']}"):
+            st.session_state.edit_id_c = row['ID']
+            st.rerun()
+        if col_del.button("🗑️ مسح", key=f"del_c_{row['ID']}"):
+            df_c = df_c[df_c["ID"] != row['ID']]
+            save_data("Clients", df_c)
+            st.rerun()
+    
+    st.dataframe(df_show, use_container_width=True, hide_index=True)
+
+# =========================================================
+# 📦 4. صـفـحـة الـسـلـعـة والـمـخـزون (Materiels)
+# =========================================================
+elif page == "📦 السلعة والمخزون":
+    st.title("📦 إدارة السلعة والمخزون")
+    df_m = load_data("Materiels", ["ID", "التعيين", "الوحدة", "الثمن", "الكمية"])
+
+    with st.expander("➕ إضافة مادة جديدة"):
+        with st.form("form_mat"):
+            c1, c2, c3 = st.columns([3, 1, 1])
+            nom = c1.text_input("اسم السلعة (Désignation)")
+            unite = c2.selectbox("الوحدة", ["U", "M", "M2", "ML", "Kg"])
+            price = c3.number_input("الثمن الوحدوي (DH)", min_value=0.0)
+            
+            if st.form_submit_button("إضافة ✅"):
+                if nom:
+                    new_id = int(df_m["ID"].max() + 1) if not df_m.empty else 1
+                    new_m = pd.DataFrame([{"ID":new_id, "التعيين":nom, "الوحدة":unite, "الثمن":price, "الكمية":0}])
+                    df_m = pd.concat([df_m, new_m], ignore_index=True)
+                    save_data("Materiels", df_m)
+                    st.success("تمت الإضافة!")
+                    st.rerun()
+
+    st.dataframe(df_m, use_container_width=True, hide_index=True)
+
+# =========================================================
+# 📄 5. صـفـحـة الـفـواتـيـر (Devis/Facture)
+# =========================================================
+elif page == "📄 إنشاء Devis/Facture":
+    st.title("📄 إنشاء وثيقة جديدة")
+    st.warning("هذه الصفحة قيد التطوير لربط البيانات واستخراج PDF.")

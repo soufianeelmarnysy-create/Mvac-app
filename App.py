@@ -9,7 +9,7 @@ st.set_page_config(page_title="MVAC Pro System", layout="wide", page_icon="❄�
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 # استعمل الرابط الكامل ديال الـ Sheet عوض الـ ID فقط باش المكتبة ما تتلفش
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1D5ogjG53HMI791W1RfHDEk0ngom0P4uf-cCPWgBjwAs"
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1D5ogjG53HMI791W1RfHDEk0ngom0P4uf-cCPWgBjwAs/edit"
 
 def load_data(sheet_name, cols):
     try:

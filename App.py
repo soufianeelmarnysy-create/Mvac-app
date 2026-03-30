@@ -43,53 +43,89 @@ with st.sidebar:
     st.markdown("---")
     st.write("سفيان - MVAC v1.0")
 
-# =========================================================
-# 👥 3. صفحة إدارة الزبناء
+# ===========================================================================================================================================================================
+# 👥 3. صفحة إدارة الزبناء (نسخة احترافية)
 # =========================================================
 if page == "👥 إدارة الزبناء":
     st.title("👥 إدارة الزبناء")
     
-    # تحميل البيانات (هنا غاتبان ليك anva)
     df_c = load_data("Customers")
 
-    # --- خانة الإضافة (Ajouter) مرتبة كيف Sheets ---
-    with st.expander("📝 إضافة زبون جديد", expanded=True):
-        with st.form("form_add_client", clear_on_submit=True):
+    # --- 1. إضافة زبون جديد ---
+    with st.expander("📝 إضافة زبون جديد"):
+        with st.form("form_add", clear_on_submit=True):
             col1, col2 = st.columns(2)
             with col1:
-                type_c = st.selectbox("النوع", ["Particulier", "Société"])
-                name = st.text_input("الاسم أو الشركة *")
-                ice = st.text_input("ICE")
+                t_c = st.selectbox("النوع", ["Particulier", "Société"], key="add_type")
+                n_c = st.text_input("الاسم أو الشركة *")
+                i_c = st.text_input("ICE")
             with col2:
-                rib = st.text_input("RIB")
-                addr = st.text_input("العنوان")
-                tel = st.text_input("الهاتف")
+                r_c = st.text_input("RIB")
+                a_c = st.text_input("العنوان")
+                te_c = st.text_input("الهاتف")
             
-            if st.form_submit_button("حفظ فـ Google Sheets ✅"):
-                if name:
-                    # حساب ID جديد أوتوماتيكياً
+            if st.form_submit_button("حفظ ✅"):
+                if n_c:
                     new_id = int(df_c["ID"].max() + 1) if not df_c.empty else 1
-                    
-                    # تجميع السطر بالترتيب ديال Sheets
-                    new_row = pd.DataFrame([[new_id, type_c, name, ice, rib, addr, tel]], columns=COLS_C)
-                    
-                    # دمج وحفظ
+                    new_row = pd.DataFrame([[new_id, t_c, n_c, i_c, r_c, a_c, te_c]], columns=COLS_C)
                     df_updated = pd.concat([df_c, new_row], ignore_index=True)
                     if save_data("Customers", df_updated):
-                        st.success(f"✅ تم تسجيل {name} بنجاح!")
+                        st.success("تم الحفظ!")
                         st.rerun()
-                else:
-                    st.warning("السمية ضرورية!")
 
-    # --- عرض الجدول (Affichage) ---
     st.markdown("---")
-    st.subheader("📋 قائمة الزبناء المسجلين")
-    if not df_c.empty:
-        st.dataframe(df_c, use_container_width=True, hide_index=True)
-    else:
-        st.info("الجدول خاوي. جرب تزيد أول كليان!")
 
-# =========================================================
+    # --- 2. البحث والتعديل والمسح ---
+    if not df_c.empty:
+        st.subheader("🔍 البحث والتحكم")
+        
+        # خانة البحث بالسمية
+        search = st.text_input("قلب على كليان بالسمية أو ICE:")
+        df_filtered = df_c[df_c['الاسم/الشركة'].str.contains(search, case=False, na=False) | 
+                           df_c['ICE'].str.contains(search, case=False, na=False)]
+
+        # اختيار الكليان باش نعدلوه
+        selected_client_name = st.selectbox("اختار كليان باش تعدلو أو تمسحو:", ["---"] + df_filtered['الاسم/الشركة'].tolist())
+
+        if selected_client_name != "---":
+            # جلب معلومات الكليان المختار
+            client_info = df_c[df_c['الاسم/الشركة'] == selected_client_name].iloc[0]
+            idx = df_c[df_c['الاسم/الشركة'] == selected_client_name].index[0]
+
+            with st.container(border=True):
+                st.write(f"📝 تعديل بيانات: **{selected_client_name}**")
+                c1, c2 = st.columns(2)
+                with c1:
+                    new_type = st.selectbox("النوع", ["Particulier", "Société"], index=0 if client_info['النوع']=="Particulier" else 1)
+                    new_name = st.text_input("الاسم/الشركة", value=client_info['الاسم/الشركة'])
+                    new_ice = st.text_input("ICE", value=client_info['ICE'])
+                with c2:
+                    new_rib = st.text_input("RIB", value=client_info['RIB'])
+                    new_addr = st.text_input("العنوان", value=client_info['العنوان'])
+                    new_tel = st.text_input("الهاتف", value=client_info['الهاتف'])
+
+                col_btn1, col_btn2 = st.columns([1, 4])
+                with col_btn1:
+                    if st.button("تحديث 💾", type="primary"):
+                        df_c.loc[idx] = [client_info['ID'], new_type, new_name, new_ice, new_rib, new_addr, new_tel]
+                        if save_data("Customers", df_c):
+                            st.success("تم التعديل!")
+                            st.rerun()
+                
+                with col_btn2:
+                    if st.button("حذف الكليان 🗑️"):
+                        df_c = df_c.drop(idx)
+                        if save_data("Customers", df_c):
+                            st.warning("تم الحذف!")
+                            st.rerun()
+
+        # عرض الجدول الكامل
+        st.markdown("---")
+        st.write("### 📋 قائمة الزبناء الكاملة")
+        st.dataframe(df_filtered, use_container_width=True, hide_index=True)
+    else:
+        st.info("الجدول خاوي.")
+# ===========================================================================================================================================================================
 # 📦 4. صفحة السلعة
 # =========================================================
 elif page == "📦 السلعة":

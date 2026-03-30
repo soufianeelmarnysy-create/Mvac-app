@@ -8,7 +8,7 @@ st.set_page_config(page_title="MVAC Control Panel", layout="wide", page_icon="�
 # 2. الربط مع Google Sheets
 # تأكد أن Secrets عندك فيها [connections.gsheets] ناضية
 conn = st.connection("gsheets", type=GSheetsConnection)
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1D5ogjG53HMI791W1RfHDEk0ngom0P4uf-cCPWgBjwAs/edit#gid=0"
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1D5ogjG53HMI791W1RfHDEk0ngom0P4uf-cCPWgBjwAs/edit"
 
 # دالة لجلب البيانات
 def get_data(worksheet_name, columns):

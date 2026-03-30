@@ -5,17 +5,17 @@ from datetime import datetime
 from fpdf import FPDF
 import base64
 
-# ==========================================
-# ⚙️ 1. الإعدادات والربط
-# ==========================================
+# 🛠️ 1. الإعدادات الأساسية والربط
 st.set_page_config(page_title="MVAC Pro System", layout="wide", page_icon="❄️")
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1D5ogjG53HMl791W1RfHDEk0ngom0P4uf-cCPWgBjwAs/edit"
 
+# تعريف الأعمدة
 COLS_C = ["ID", "النوع", "الاسم/الشركة", "ICE", "RIB", "العنوان", "الهاتف"]
 COLS_M = ["ID", "المرجع", "السلعة", "الوحدة", "الكمية", "ثمن الوحدة"]
 
+# 🔄 دالة جلب البيانات
 def load_data(sheet_name, columns):
     try:
         st.cache_data.clear()
@@ -25,192 +25,189 @@ def load_data(sheet_name, columns):
             df = df.fillna("").astype(str).replace(r'\.0$', '', regex=True)
             return df[columns]
         return pd.DataFrame(columns=columns)
-    except: return pd.DataFrame(columns=columns)
+    except:
+        return pd.DataFrame(columns=columns)
 
+# 💾 دالة الحفظ
 def save_data(sheet_name, df):
     try:
         conn.update(spreadsheet=SHEET_URL, worksheet=sheet_name, data=df)
         return True
     except Exception as e:
-        st.error(f"❌ عطب في الحفظ: {e}"); return False
+        st.error(f"❌ خطأ في الحفظ: {e}")
+        return False
 
-# ==========================================
-# 🧭 2. المنيو الجانبي
-# ==========================================
+# 🧭 2. القائمة الجانبية
 with st.sidebar:
     st.title("❄️ MVAC SYSTEM")
     page = st.radio("اختار الصفحة:", ["👥 إدارة الزبناء", "📦 إدارة السلعة", "📄 Devis / Facture"])
-    st.info("SOUFIANE - Pro v3.5")
+    st.markdown("---")
+    st.info("SOUFIANE - Pro Edition v3.8")
 
 # ==========================================
-# 👥 3. صفحة إدارة الزبناء (Full CRUD)
+# 👥 3. صفحة الزبناء (إضافة، بحث، تعديل، حذف)
 # ==========================================
 if page == "👥 إدارة الزبناء":
     st.title("👥 إدارة الزبناء (Customers)")
-    COLS_C = ["ID", "النوع", "الاسم/الشركة", "ICE", "RIB", "العنوان", "الهاتف"]
-    df_c = load_data("Customers")
+    df_c = load_data("Customers", COLS_C)
 
-    # --- إضافة زبون جديد ---
     with st.expander("➕ إضافة زبون جديد"):
-        with st.form("form_add_client", clear_on_submit=True):
+        with st.form("add_client_form", clear_on_submit=True):
             c1, c2 = st.columns(2)
             with c1:
-                t_c = st.selectbox("النوع", ["Particulier", "Société"])
+                t_c = st.selectbox("النوع", ["Société", "Particulier"])
                 n_c = st.text_input("الاسم أو الشركة *")
                 i_c = st.text_input("🆔 ICE")
             with c2:
-                r_c = st.text_input("💳 RIB")
-                a_c = st.text_input("📍 العنوان")
                 te_c = st.text_input("📞 الهاتف")
-            
+                a_c = st.text_input("📍 العنوان")
             if st.form_submit_button("حفظ ✅"):
                 if n_c:
                     new_id = str(int(pd.to_numeric(df_c["ID"], errors='coerce').max() + 1)) if not df_c.empty else "1"
-                    new_row = pd.DataFrame([[new_id, t_c, n_c, i_c, r_c, a_c, te_c]], columns=COLS_C)
-                    df_updated = pd.concat([df_c, new_row], ignore_index=True)
-                    if save_data("Customers", df_updated):
-                        st.success("✅ تم الحفظ!")
-                        st.rerun()
+                    new_row = pd.DataFrame([[new_id, t_c, n_c, i_c, "", a_c, te_c]], columns=COLS_C)
+                    if save_data("Customers", pd.concat([df_c, new_row], ignore_index=True)):
+                        st.success("✅ تم الحفظ!"); st.rerun()
 
     st.markdown("---")
-    search = st.text_input("🔍 قلب على كليان بالسمية...", placeholder="مثال: anva")
-    df_filtered = df_c[df_c['الاسم/الشركة'].str.contains(search, case=False, na=False)] if not df_c.empty else df_c
+    search_c = st.text_input("🔍 قلب على كليان بالسمية أو ICE...")
+    df_f = df_c[df_c['الاسم/الشركة'].str.contains(search_c, case=False, na=False) | 
+                df_c['ICE'].str.contains(search_c, case=False, na=False)] if search_c else df_c
 
-    if not df_filtered.empty:
-        for index, row in df_filtered.iterrows():
+    if not df_f.empty:
+        for idx, row in df_f.iterrows():
             with st.container(border=True):
-                col1, col2 = st.columns([3, 1])
-                with col1:
+                col_info, col_btns = st.columns([3, 1])
+                with col_info:
                     st.markdown(f"### 👤 {row['الاسم/الشركة']} ({row['النوع']})")
-                    st.write(f"🆔 ICE: `{row['ICE']}` | 📞 Tel: `{row['الهاتف']}`")
-                    st.write(f"💳 RIB: `{row['RIB']}` | 📍 {row['العنوان']}")
-                with col2:
-                    st.write(" ")
-                    if st.button(f"📝 تعديل", key=f"edit_c_{row['ID']}"): st.session_state[f"ec_{row['ID']}"] = True
-                    if st.button(f"🗑️ حذف", key=f"del_c_{row['ID']}"): st.session_state[f"dc_{row['ID']}"] = True
+                    st.write(f"🆔 ICE: `{row['ICE']}` | 📞 Tel: `{row['الهاتف']}` | 📍 {row['العنوان']}")
+                
+                with col_btns:
+                    st.write("")
+                    if st.button("📝 تعديل", key=f"edit_c_{row['ID']}"): st.session_state[f"mode_c_{row['ID']}"] = True
+                    if st.button("🗑️ حذف", key=f"del_c_{row['ID']}"):
+                        if save_data("Customers", df_c.drop(idx)): st.rerun()
 
-                # نافذة التعديل
-                if st.session_state.get(f"ec_{row['ID']}", False):
-                    with st.container(border=True):
-                        ec1, ec2 = st.columns(2)
-                        with ec1:
-                            en = st.text_input("الاسم", value=row['الاسم/الشركة'], key=f"n_{row['ID']}")
-                            ei = st.text_input("ICE", value=row['ICE'], key=f"i_{row['ID']}")
-                        with ec2:
-                            er = st.text_input("RIB", value=row['RIB'], key=f"r_{row['ID']}")
-                            et = st.text_input("الهاتف", value=row['الهاتف'], key=f"t_{row['ID']}")
-                        if st.button("تحديث 💾", key=f"up_c_{row['ID']}", type="primary"):
-                            df_c.loc[index, ['الاسم/الشركة', 'ICE', 'RIB', 'الهاتف']] = [en, ei, er, et]
-                            if save_data("Customers", df_c): st.rerun()
-                        if st.button("إلغاء ❌", key=f"can_c_{row['ID']}"):
-                            st.session_state[f"ec_{row['ID']}"] = False
+                # نافذة التعديل (Edit Mode)
+                if st.session_state.get(f"mode_c_{row['ID']}", False):
+                    with st.form(f"edit_form_c_{row['ID']}"):
+                        st.info(f"تعديل بيانات: {row['الاسم/الشركة']}")
+                        new_n = st.text_input("الاسم", value=row['الاسم/الشركة'])
+                        new_i = st.text_input("ICE", value=row['ICE'])
+                        new_t = st.text_input("الهاتف", value=row['الهاتف'])
+                        new_a = st.text_input("العنوان", value=row['العنوان'])
+                        
+                        b_up, b_can = st.columns(2)
+                        if b_up.form_submit_button("تحديث 💾"):
+                            df_c.loc[idx, ["الاسم/الشركة", "ICE", "الهاتف", "العنوان"]] = [new_n, new_i, new_t, new_a]
+                            if save_data("Customers", df_c):
+                                st.session_state[f"mode_c_{row['ID']}"] = False
+                                st.rerun()
+                        if b_can.form_submit_button("إلغاء ❌"):
+                            st.session_state[f"mode_c_{row['ID']}"] = False
                             st.rerun()
 
-                # نافذة الحذف
-                if st.session_state.get(f"dc_{row['ID']}", False):
-                    st.error("⚠️ مسح؟")
-                    if st.button("نعم ✅", key=f"y_c_{row['ID']}"):
-                        df_c = df_c.drop(index)
-                        if save_data("Customers", df_c): st.rerun()
-                    if st.button("لا ❌", key=f"n_c_{row['ID']}"):
-                        st.session_state[f"dc_{row['ID']}"] = False
-                        st.rerun()
-    else: st.info("خاوي.")
-
-# ==============================================================================================================================
-# 📦 4. صفحة إدارة السلعة (Full CRUD)
+# ==========================================
+# 📦 4. صفحة السلعة (إضافة، بحث، تعديل، حذف)
 # ==========================================
 elif page == "📦 إدارة السلعة":
-    st.title("📦 إدارة السلعة")
+    st.title("📦 إدارة السلعة (Inventory)")
     df_m = load_data("Materiels", COLS_M)
 
-    # 1. إضافة
-    with st.expander("➕ إضافة سلعة"):
-        with st.form("add_mat"):
+    with st.expander("➕ إضافة سلعة جديدة"):
+        with st.form("add_mat_form", clear_on_submit=True):
             m1, m2 = st.columns(2)
             with m1:
-                ref = st.text_input("المرجع (Ref)")
-                des = st.text_input("السلعة *")
+                ref = st.text_input("🔢 المرجع (Ref)")
+                des = st.text_input("📝 السلعة *")
             with m2:
-                qte = st.text_input("الكمية", value="0")
-                pri = st.text_input("الثمن (HT)")
-            if st.form_submit_button("حفظ ✅"):
-                new_id = str(int(pd.to_numeric(df_m["ID"], errors='coerce').max() + 1)) if not df_m.empty else "1"
-                new_row = pd.DataFrame([[new_id, ref, des, "U", qte, pri]], columns=COLS_M)
-                if save_data("Materiels", pd.concat([df_m, new_row], ignore_index=True)): st.rerun()
+                qte = st.text_input("🔢 الكمية", value="0")
+                pri = st.text_input("💰 ثمن الوحدة HT")
+            if st.form_submit_button("حفظ السلعة ✅"):
+                if des:
+                    new_id = str(int(pd.to_numeric(df_m["ID"], errors='coerce').max() + 1)) if not df_m.empty else "1"
+                    new_row = pd.DataFrame([[new_id, ref, des, "U", qte, pri]], columns=COLS_M)
+                    if save_data("Materiels", pd.concat([df_m, new_row], ignore_index=True)):
+                        st.success("✅ تم الحفظ!"); st.rerun()
 
-    # 2. بحث
+    st.markdown("---")
     search_m = st.text_input("🔍 قلب بسمية السلعة...")
     df_fm = df_m[df_m['السلعة'].str.contains(search_m, case=False, na=False)] if search_m else df_m
 
-    # 3. تعديل وحذف السلعة
     for idx, row in df_fm.iterrows():
         with st.container(border=True):
-            c_info, c_action = st.columns([4, 1.2])
-            c_info.write(f"📦 **{row['السلعة']}** | 🔢 Qte: {row['الكمية']} | 💰 {row['ثمن الوحدة']} DH")
-            
-            eb, db = c_action.columns(2)
-            if eb.button("📝 تعديل", key=f"ed_m_{row['ID']}"): st.session_state[f"edit_mode_m_{row['ID']}"] = True
-            if db.button("🗑️ حذف", key=f"del_m_{row['ID']}"):
-                if save_data("Materiels", df_m.drop(idx)): st.rerun()
+            ci, ca = st.columns([3, 1])
+            with ci:
+                st.markdown(f"### 📦 {row['السلعة']}")
+                st.write(f"🔢 Ref: `{row['المرجع']}` | 🔢 Qte: `{row['الكمية']}` | 💰 Price: `{row['ثمن الوحدة']} DH`")
+            with ca:
+                st.write("")
+                if st.button("📝 تعديل", key=f"edit_m_{row['ID']}"): st.session_state[f"mode_m_{row['ID']}"] = True
+                if st.button("🗑️ حذف", key=f"del_m_{row['ID']}"):
+                    if save_data("Materiels", df_m.drop(idx)): st.rerun()
 
-            if st.session_state.get(f"edit_mode_m_{row['ID']}", False):
-                with st.form(f"f_ed_m_{row['ID']}"):
-                    en_des = st.text_input("السلعة", value=row['السلعة'])
-                    en_qte = st.text_input("الكمية", value=row['الكمية'])
-                    en_pri = st.text_input("الثمن", value=row['ثمن الوحدة'])
+            if st.session_state.get(f"mode_m_{row['ID']}", False):
+                with st.form(f"edit_form_m_{row['ID']}"):
+                    n_des = st.text_input("السلعة", value=row['السلعة'])
+                    n_ref = st.text_input("المرجع", value=row['المرجع'])
+                    n_qte = st.text_input("الكمية", value=row['الكمية'])
+                    n_pri = st.text_input("ثمن الوحدة", value=row['ثمن الوحدة'])
                     if st.form_submit_button("تحديث 💾"):
-                        df_m.loc[idx, ["السلعة", "الكمية", "ثمن الوحدة"]] = [en_des, en_qte, en_pri]
+                        df_m.loc[idx, ["السلعة", "المرجع", "الكمية", "ثمن الوحدة"]] = [n_des, n_ref, n_qte, n_pri]
                         if save_data("Materiels", df_m):
-                            st.session_state[f"edit_mode_m_{row['ID']}"] = False
+                            st.session_state[f"mode_m_{row['ID']}"] = False
                             st.rerun()
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-# ========================================================================================================================================================================
-# =========================================================================================================================================================================
-# 📄 5. صفحة Devis / Facture
+# ==========================================
+# 📄 5. صفحة الفاتورة (Facturation)
 # ==========================================
 else:
-    st.title("📄 Devis / Facture")
+    st.title("📄 Devis / Facture Pro")
     df_c = load_data("Customers", COLS_C)
     df_m = load_data("Materiels", COLS_M)
 
     if not df_c.empty and not df_m.empty:
-        col_h1, col_h2 = st.columns(2)
-        c_name = col_h1.selectbox("الزبون", df_c["الاسم/الشركة"].tolist())
-        d_type = col_h2.selectbox("النوع", ["DEVIS", "FACTURE"])
+        c1, c2, c3 = st.columns([2, 1, 1])
+        selected_client = c1.selectbox("اختار الزبون", df_c["الاسم/الشركة"].tolist())
+        doc_type = c2.selectbox("النوع", ["DEVIS", "FACTURE"])
+        doc_num = c3.text_input("رقم الوثيقة", value="A2024-001")
 
         if 'cart' not in st.session_state: st.session_state.cart = []
 
         with st.container(border=True):
+            st.subheader("🛒 إضافة السلع")
             i1, i2, i3 = st.columns([3, 1, 1])
             s_item = i1.selectbox("السلعة", df_m["السلعة"].tolist())
             s_qte = i2.number_input("الكمية", min_value=1, value=1)
-            if i3.button("➕"):
-                it = df_m[df_m["السلعة"] == s_item].iloc[0]
-                p_u = float(it["ثمن الوحدة"] or 0)
+            if i3.button("➕ إضافة"):
+                m_data = df_m[df_m["السلعة"] == s_item].iloc[0]
+                p_u = float(str(m_data["ثمن الوحدة"]).replace(',', '.') or 0)
                 st.session_state.cart.append({"Désignation": s_item, "Qte": s_qte, "P.U": p_u, "Total": s_qte * p_u})
                 st.rerun()
 
         if st.session_state.cart:
-            df_inv = pd.DataFrame(st.session_state.cart)
-            st.table(df_inv)
-            ttc = df_inv["Total"].sum() * 1.2
-            st.error(f"TOTAL TTC (20% TVA): {ttc:,.2f} DH")
+            df_cart = pd.DataFrame(st.session_state.cart)
+            st.table(df_cart)
+            ht = df_cart["Total"].sum()
+            tva = ht * 0.20
+            ttc = ht + tva
             
-            if st.button("📥 PDF"):
-                st.write("PDF Generating...") # هنا كود الـ PDF اللي عطيتهولك فالمثال السابق
-            if st.button("🗑️ إفراغ"):
+            st.write(f"**Total HT:** {ht:,.2f} DH | **TVA 20%:** {tva:,.2f} DH")
+            st.error(f"### TOTAL TTC: {ttc:,.2f} DH")
+
+            if st.button("📥 تحميل PDF"):
+                pdf = FPDF()
+                pdf.add_page(); pdf.set_font("Arial", 'B', 16)
+                pdf.cell(0, 10, f"MVAC - {doc_type} N: {doc_num}", ln=1, align='C')
+                pdf.set_font("Arial", '', 12)
+                pdf.cell(0, 10, f"Client: {selected_client} | Date: {datetime.now().strftime('%d/%m/%Y')}", ln=1)
+                pdf.ln(5)
+                for item in st.session_state.cart:
+                    pdf.cell(0, 10, f"- {item['Désignation']} | {item['Qte']} x {item['P.U']} = {item['Total']} DH", ln=1)
+                pdf_output = pdf.output(dest='S').encode('latin-1')
+                b64 = base64.b64encode(pdf_output).decode()
+                st.markdown(f'<a href="data:application/pdf;base64,{b64}" download="Facture_{doc_num}.pdf">📥 اضغط هنا للتحميل</a>', unsafe_allow_html=True)
+
+            if st.button("🗑️ إفراغ الجدول"):
                 st.session_state.cart = []; st.rerun()
+    else:
+        st.warning("⚠️ دخل السلعة والكليان هما الأولين!")

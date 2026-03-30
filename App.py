@@ -46,12 +46,12 @@ with st.sidebar:
 # ===========================================================================================================================================================================
 # 👤 واجهة إدارة الزبناء
 # =========================================================
-st.title("👥 إدارة الزبناء (Customers Management)")
+st.title("👥 إدارة الزبناء (Customers)")
 
 df_c = load_data()
 
-# --- أ: إضافة زبون جديد (Design نقي) ---
-with st.expander("➕ إضافة زبون جديد", expanded=False):
+# --- أ: إضافة زبون جديد ---
+with st.expander("➕ إضافة زبون جديد"):
     with st.form("form_add", clear_on_submit=True):
         c1, c2 = st.columns(2)
         with c1:
@@ -63,9 +63,8 @@ with st.expander("➕ إضافة زبون جديد", expanded=False):
             a_c = st.text_input("📍 العنوان")
             te_c = st.text_input("📞 الهاتف")
         
-        if st.form_submit_button("حفظ في قاعدة البيانات ✅"):
+        if st.form_submit_button("حفظ ✅"):
             if n_c:
-                # حساب ID جديد
                 current_max = 0
                 if not df_c.empty:
                     ids = pd.to_numeric(df_c["ID"], errors='coerce').fillna(0)
@@ -75,44 +74,41 @@ with st.expander("➕ إضافة زبون جديد", expanded=False):
                 new_row = pd.DataFrame([[new_id, t_c, n_c, i_c, r_c, a_c, te_c]], columns=COLS_C)
                 df_updated = pd.concat([df_c, new_row], ignore_index=True)
                 if save_data(df_updated):
-                    st.success(f"✅ تم حفظ {n_c} بنجاح!")
+                    st.success("✅ تم الحفظ!")
                     st.rerun()
-            else:
-                st.warning("المرجو إدخال الاسم!")
 
 st.markdown("---")
 
-# --- ب: البحث (Search) ---
+# --- ب: البحث بـ Design الـ Cards ---
 st.subheader("🔍 البحث السريع")
-search_query = st.text_input("قلب بسمية الكليان...", placeholder="اكتب هنا للبحث مباشرة...")
+search_query = st.text_input("قلب بسمية الكليان...", placeholder="مثال: anva")
 
-# فلترة الجدول حسب البحث
 df_filtered = df_c[df_c['الاسم/الشركة'].str.contains(search_query, case=False, na=False)]
 
-# --- ج: عرض الزبناء بـ Design الـ Cards ---
 if not df_filtered.empty:
     for index, row in df_filtered.iterrows():
         with st.container(border=True):
             col_info, col_btns = st.columns([3, 1])
             
             with col_info:
-                st.markdown(f"### 👤 {row['الاسم/الشركة']} <small>({row['النوع']})</small>", unsafe_allow_html=True)
-                st.write(f"🆔 **ICE:** `{row['ICE']}`  |  📞 **Tel:** `{row['الهاتف']}`")
+                # عرض البيانات مع الأيقونات
+                st.markdown(f"### 👤 {row['الاسم/الشركة']} ({row['النوع']})")
+                st.write(f"🆔 **ICE:** `{row['ICE']}` | 📞 **Tel:** `{row['الهاتف']}`")
                 st.write(f"💳 **RIB:** `{row['RIB']}`")
                 st.write(f"📍 **Adresse:** {row['العنوان']}")
             
             with col_btns:
-                st.write(" ") # تنسيق
+                st.write(" ")
                 if st.button(f"📝 تعديل", key=f"edit_{row['ID']}"):
                     st.session_state[f"edit_mode_{row['ID']}"] = True
                 
                 if st.button(f"🗑️ حذف", key=f"del_{row['ID']}"):
                     st.session_state[f"del_mode_{row['ID']}"] = True
 
-            # --- نافذة التعديل (كتظهر تحت الكليان) ---
+            # نافذة التعديل
             if st.session_state.get(f"edit_mode_{row['ID']}", False):
                 with st.container(border=True):
-                    st.info(f"تعديل بيانات: {row['الاسم/الشركة']}")
+                    st.info(f"تعديل: {row['الاسم/الشركة']}")
                     ec1, ec2 = st.columns(2)
                     with ec1:
                         new_type = st.selectbox("النوع", ["Particulier", "Société"], index=0 if row['النوع']=="Particulier" else 1, key=f"et_{row['ID']}")
@@ -123,34 +119,31 @@ if not df_filtered.empty:
                         new_addr = st.text_input("العنوان", value=row['العنوان'], key=f"ea_{row['ID']}")
                         new_tel = st.text_input("الهاتف", value=row['الهاتف'], key=f"etex_{row['ID']}")
                     
-                    b_save, b_cancel = st.columns(2)
-                    with b_save:
-                        if st.button("تحديث 💾", key=f"save_edit_{row['ID']}", type="primary"):
+                    b1, b2 = st.columns(2)
+                    with b1:
+                        if st.button("تحديث 💾", key=f"up_{row['ID']}", type="primary"):
                             df_c.loc[index] = [row['ID'], new_type, new_name, new_ice, new_rib, new_addr, new_tel]
                             if save_data(df_c):
                                 st.session_state[f"edit_mode_{row['ID']}"] = False
                                 st.rerun()
-                    with b_cancel:
-                        if st.button("إلغاء ❌", key=f"canc_edit_{row['ID']}"):
+                    with b2:
+                        if st.button("إلغاء ❌", key=f"can_{row['ID']}"):
                             st.session_state[f"edit_mode_{row['ID']}"] = False
                             st.rerun()
 
-            # --- نافذة تأكيد الحذف ---
+            # نافذة الحذف
             if st.session_state.get(f"del_mode_{row['ID']}", False):
                 st.error(f"⚠️ واش بصح بغيتي تمسح **{row['الاسم/الشركة']}**؟")
-                d_col1, d_col2 = st.columns(2)
-                with d_col1:
-                    if st.button("نعم، احذف ✅", key=f"confirm_del_{row['ID']}"):
-                        df_new = df_c.drop(index)
-                        if save_data(df_new):
-                            st.session_state[f"del_mode_{row['ID']}"] = False
-                            st.rerun()
-                with d_col2:
-                    if st.button("لا، تراجع ❌", key=f"cancel_del_{row['ID']}"):
+                if st.button("نعم، احذف ✅", key=f"conf_{row['ID']}"):
+                    df_new = df_c.drop(index)
+                    if save_data(df_new):
                         st.session_state[f"del_mode_{row['ID']}"] = False
                         st.rerun()
+                if st.button("لا، تراجع ❌", key=f"stop_{row['ID']}"):
+                    st.session_state[f"del_mode_{row['ID']}"] = False
+                    st.rerun()
 else:
-    st.info("لم يتم العثور على أي نتائج للبحث.")
+    st.info("لم يتم العثور على أي نتائج.")
 
 # ===========================================================================================================================================================================
 # 📦 4. صفحة السلعة

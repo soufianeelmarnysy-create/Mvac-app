@@ -6,7 +6,7 @@ import pandas as pd
 st.set_page_config(page_title="نظام MVAC لإدارة الزبناء", layout="wide")
 
 # رابط ملف Google Sheet الخاص بك
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1D5ogjG53HMI791W1RfHDEk0ngom0P4uf-cCPWgBjwAs/edit#gid=0"
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1D5ogjG53HMI791W1RfHDEk0ngom0P4uf-cCPWgBjwAs/edit"
 
 # إنشاء الاتصال باستخدام Secrets التي أدخلتها
 conn = st.connection("gsheets", type=GSheetsConnection)

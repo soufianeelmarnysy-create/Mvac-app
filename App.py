@@ -157,6 +157,45 @@ def save_data(df):
 # =========================================================
 # 📦 واجهة إدارة السلعة
 # =========================================================
+import streamlit as st
+import pandas as pd
+from streamlit_gsheets import GSheetsConnection
+
+# 🛠️ 1. الإعدادات
+st.set_page_config(page_title="إدارة السلعة - MVAC", layout="wide", page_icon="📦")
+
+conn = st.connection("gsheets", type=GSheetsConnection)
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1D5ogjG53HMl791W1RfHDEk0ngom0P4uf-cCPWgBjwAs/edit"
+
+# الأعمدة حسب الترتيب اللي عندك فـ Sheets: ID | المرجع | السلعة | الوحدة | الكمية | ثمن الوحدة
+COLS_M = ["ID", "المرجع", "السلعة", "الوحدة", "الكمية", "ثمن الوحدة"]
+
+# 🔄 دالة جلب البيانات وتنقية الأرقام
+def load_data():
+    try:
+        st.cache_data.clear()
+        df = conn.read(spreadsheet=SHEET_URL, worksheet="Materiels", ttl=0)
+        if df is not None and not df.empty:
+            df.columns = df.columns.str.strip()
+            # تنظيف: تحويل لنصوص ومسح الفاصلة زيرو (.0)
+            df = df.fillna("").astype(str).replace(r'\.0$', '', regex=True)
+            return df[COLS_M]
+        return pd.DataFrame(columns=COLS_M)
+    except Exception as e:
+        return pd.DataFrame(columns=COLS_M)
+
+# 💾 دالة الحفظ
+def save_data(df):
+    try:
+        conn.update(spreadsheet=SHEET_URL, worksheet="Materiels", data=df)
+        return True
+    except Exception as e:
+        st.error(f"❌ خطأ في الحفظ: {e}")
+        return False
+
+# =========================================================
+# 📦 واجهة إدارة السلعة
+# =========================================================
 st.title("📦 إدارة السلعة (Materiels)")
 
 df_m = load_data()
@@ -176,17 +215,21 @@ with st.expander("➕ إضافة سلعة جديدة"):
         
         if st.form_submit_button("حفظ السلعة ✅"):
             if des:
+                # حساب ID جديد
                 current_max = 0
                 if not df_m.empty:
                     ids = pd.to_numeric(df_m["ID"], errors='coerce').fillna(0)
                     current_max = int(ids.max())
                 new_id = str(current_max + 1)
                 
-                new_row = pd.DataFrame([[new_id, ref, des, uni, qte, pri]], columns=COLS_C) # Correction: COLS_M
+                # ✅ تصحيح الخطأ هنا: استعملنا COLS_M
+                new_row = pd.DataFrame([[new_id, ref, des, uni, qte, pri]], columns=COLS_M)
                 df_updated = pd.concat([df_m, new_row], ignore_index=True)
                 if save_data(df_updated):
-                    st.success("✅ تم الحفظ!")
+                    st.success("✅ تم الحفظ بنجاح!")
                     st.rerun()
+            else:
+                st.warning("المرجو إدخال اسم السلعة!")
 
 st.markdown("---")
 
@@ -195,7 +238,7 @@ search = st.text_input("🔍 قلب بسمية السلعة أو المرجع...
 df_filtered = df_m[df_m['السلعة'].str.contains(search, case=False, na=False) | 
                    df_m['المرجع'].str.contains(search, case=False, na=False)]
 
-# --- ج: عرض السلعة (Modifier / Supprimer) ---
+# --- ج: عرض السلعة (Cards) ---
 if not df_filtered.empty:
     for index, row in df_filtered.iterrows():
         with st.container(border=True):
@@ -222,7 +265,9 @@ if not df_filtered.empty:
                         n_ref = st.text_input("المرجع", value=row['المرجع'], key=f"r_{row['ID']}")
                         n_des = st.text_input("السلعة", value=row['السلعة'], key=f"s_{row['ID']}")
                     with e2:
-                        n_uni = st.selectbox("الوحدة", ["U", "M", "M2", "ML", "Kg", "Ens"], key=f"u_{row['ID']}")
+                        n_uni = st.selectbox("الوحدة", ["U", "M", "M2", "ML", "Kg", "Ens"], 
+                                             index=["U", "M", "M2", "ML", "Kg", "Ens"].index(row['الوحدة']) if row['الوحدة'] in ["U", "M", "M2", "ML", "Kg", "Ens"] else 0,
+                                             key=f"u_{row['ID']}")
                         n_qte = st.text_input("الكمية", value=row['الكمية'], key=f"q_{row['ID']}")
                     with e3:
                         n_pri = st.text_input("ثمن الوحدة", value=row['ثمن الوحدة'], key=f"p_{row['ID']}")
@@ -231,7 +276,9 @@ if not df_filtered.empty:
                     with be1:
                         if st.button("تحديث 💾", key=f"up_{row['ID']}", type="primary"):
                             df_m.loc[index] = [row['ID'], n_ref, n_des, n_uni, n_qte, n_pri]
-                            if save_data(df_m): st.rerun()
+                            if save_data(df_m):
+                                st.session_state[f"edit_m_{row['ID']}"] = False
+                                st.rerun()
                     with be2:
                         if st.button("إلغاء ❌", key=f"cn_{row['ID']}"):
                             st.session_state[f"edit_m_{row['ID']}"] = False
@@ -239,12 +286,17 @@ if not df_filtered.empty:
 
             # --- نافذة الحذف ---
             if st.session_state.get(f"del_m_{row['ID']}", False):
-                st.warning(f"⚠️ تمسح **{row['السلعة']}**؟")
-                if st.button("نعم، مسح ✅", key=f"y_{row['ID']}"):
-                    df_m = df_m.drop(index)
-                    if save_data(df_m): st.rerun()
-                if st.button("لا ❌", key=f"n_{row['ID']}"):
-                    st.session_state[f"del_m_{row['ID']}"] = False
-                    st.rerun()
+                st.warning(f"⚠️ واش بغيتي تمسح **{row['السلعة']}**؟")
+                b_del1, b_del2 = st.columns(2)
+                with b_del1:
+                    if st.button("نعم، مسح ✅", key=f"y_{row['ID']}"):
+                        df_m = df_m.drop(index)
+                        if save_data(df_m):
+                            st.session_state[f"del_m_{row['ID']}"] = False
+                            st.rerun()
+                with b_del2:
+                    if st.button("لا ❌", key=f"n_{row['ID']}"):
+                        st.session_state[f"del_m_{row['ID']}"] = False
+                        st.rerun()
 else:
     st.info("ماكاين حتى سلعة بهاد السمية.")

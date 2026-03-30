@@ -3,3 +3,7 @@ pandas
 st-gsheets-connection
 streamlit-gsheets
 fpdf
+streamlit
+pandas
+streamlit-gsheets
+fpdf

@@ -5,13 +5,19 @@ from streamlit_gsheets import GSheetsConnection
 # 1. إعداد الصفحة
 st.set_page_config(page_title="نظام MVAC Pro", layout="wide", page_icon="❄️")
 
-# 2. الربط مع Google Sheets (الرابط النقي)
+# 2. الربط باستخدام ID الملف مباشرة (هذا هو الساروت الصحيح)
 conn = st.connection("gsheets", type=GSheetsConnection)
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1D5ogjG53HMI791W1RfHDEk0ngom0P4uf-cCPWgBjwAs/edit"
+# هاد الـ ID جبناه من الرابط ديالك وهو اللي كيهنينا من كاع المشاكل
+SHEET_ID = "1D5ogjG53HMI791W1RfHDEk0ngom0P4uf-cCPWgBjwAs"
 
-# 3. دالة لجلب البيانات (باش ديما تكون محينة)
+# 3. دالة لجلب البيانات (استخدام الـ ID عوض الرابط)
 def load_data():
-    return conn.read(spreadsheet=SHEET_URL, worksheet="Clients", ttl=0) # ttl=0 باش ما يكيشيش البيانات القديمة
+    try:
+        # استعملنا SHEET_ID هنا باش يلقى الملف نيشان
+        return conn.read(spreadsheet=SHEET_ID, worksheet="Clients", ttl=0)
+    except Exception as e:
+        st.error(f"خطأ في قراءة البيانات: {e}")
+        return pd.DataFrame(columns=["ID", "الاسم/الشركة", "النوع", "ICE", "الهاتف", "العنوان", "RIB"])
 
 df = load_data()
 
@@ -20,23 +26,24 @@ st.title("👥 إدارة زبناء MVAC")
 # --- محرك البحث ---
 search_query = st.text_input("🔍 بحث عن زبون (بالاسم):", "")
 
-# --- فلتراسيون ديال الجدول على حساب البحث ---
 if search_query:
     display_df = df[df["الاسم/الشركة"].astype(str).str.contains(search_query, case=False, na=False)]
 else:
     display_df = df
 
-# --- فورم الإضافة والتعديل ---
-# كنخدمو بـ session_state باش نعرفو واش بغينا نعدلو شي حد
+# --- نظام التعديل والإضافة ---
 if "edit_id" not in st.session_state:
     st.session_state.edit_id = None
 
 with st.expander("➕ إضافة / 🛠️ تعديل بيانات زبون", expanded=(st.session_state.edit_id is not None)):
     with st.form("client_form"):
-        # إلى كان كاين edit_id، كنجبدو بياناتو باش نعمرو الخانات
         if st.session_state.edit_id is not None:
-            current_row = df[df["ID"] == st.session_state.edit_id].iloc[0]
-            st.info(f"أنت الآن تعدل بيانات: {current_row['الاسم/الشركة']}")
+            # كنقلبو على السطر اللي بغينا نعدلو
+            try:
+                current_row = df[df["ID"].astype(str) == str(st.session_state.edit_id)].iloc[0]
+                st.info(f"تعديل: {current_row['الاسم/الشركة']}")
+            except:
+                current_row = None
         else:
             current_row = None
 
@@ -48,48 +55,37 @@ with st.expander("➕ إضافة / 🛠️ تعديل بيانات زبون", ex
         addr = st.text_area("العنوان", value=current_row["العنوان"] if current_row is not None else "")
         type_c = st.selectbox("النوع", ["Particulier", "Société"], index=0 if (current_row is None or current_row["النوع"]=="Particulier") else 1)
 
-        submitted = st.form_submit_button("حفظ التغييرات")
+        submitted = st.form_submit_button("حفظ")
         
         if submitted:
             if name:
                 if st.session_state.edit_id is not None:
-                    # عملية التعديل
-                    df.loc[df["ID"] == st.session_state.edit_id, ["الاسم/الشركة", "الهاتف", "ICE", "RIB", "العنوان", "النوع"]] = [name, phone, ice, rib, addr, type_c]
-                    st.session_state.edit_id = None # نرجعو لوضع الإضافة
+                    # تعديل سطر موجود
+                    df.loc[df["ID"].astype(str) == str(st.session_state.edit_id), ["الاسم/الشركة", "الهاتف", "ICE", "RIB", "العنوان", "النوع"]] = [name, phone, ice, rib, addr, type_c]
+                    st.session_state.edit_id = None
                 else:
-                    # عملية إضافة جديد
+                    # إضافة سطر جديد
                     new_id = int(df["ID"].astype(float).max() + 1) if not df.empty else 1
                     new_line = pd.DataFrame([{"ID": new_id, "الاسم/الشركة": name, "النوع": type_c, "ICE": ice, "الهاتف": phone, "العنوان": addr, "RIB": rib}])
                     df = pd.concat([df, new_line], ignore_index=True)
                 
-                # تحديث الـ Sheet
-                conn.update(spreadsheet=SHEET_URL, worksheet="Clients", data=df)
-                st.success("✅ تم التحديث بنجاح!")
+                # تحديث الـ Sheet باستخدام الـ ID
+                conn.update(spreadsheet=SHEET_ID, worksheet="Clients", data=df)
+                st.success("✅ تم التحديث!")
                 st.rerun()
 
-# --- عرض الجدول مع أزرار التحكم ---
+# --- عرض الأزرار للتحكم ---
 st.markdown("---")
-st.subheader("📋 قائمة الزبناء")
-
 if not display_df.empty:
     for i, row in display_df.iterrows():
-        with st.container():
-            c1, c2, c3, c4 = st.columns([4, 1, 1, 1])
-            c1.write(f"**{row['الاسم/الشركة']}** | {row['الهاتف']}")
-            
-            # زر التعديل
-            if c2.button("📝 تعديل", key=f"edit_{row['ID']}"):
-                st.session_state.edit_id = row['ID']
-                st.rerun()
-            
-            # زر الحذف
-            if c3.button("🗑️ حذف", key=f"del_{row['ID']}"):
-                df = df[df["ID"] != row['ID']]
-                conn.update(spreadsheet=SHEET_URL, worksheet="Clients", data=df)
-                st.success("تم الحذف")
-                st.rerun()
+        c1, c2, c3 = st.columns([4, 1, 1])
+        c1.write(f"**{row['الاسم/الشركة']}**")
+        if c2.button("📝", key=f"ed_{row['ID']}"):
+            st.session_state.edit_id = row['ID']
+            st.rerun()
+        if c3.button("🗑️", key=f"de_{row['ID']}"):
+            df = df[df["ID"] != row['ID']]
+            conn.update(spreadsheet=SHEET_ID, worksheet="Clients", data=df)
+            st.rerun()
     
-    st.markdown("---")
     st.dataframe(display_df, use_container_width=True)
-else:
-    st.info("لا يوجد زبناء بهذا الاسم.")

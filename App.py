@@ -339,86 +339,120 @@ else:
 # ==========================================
 # 📄 3. إنشاء Devis / Facture (مع التخفيض والـ PDF)
 # ==========================================
-else:
-    st.title("📄 إنشاء وثيقة تجارية")
-    df_clients = load_data("Customers")
-    df_mats = load_data("Materiels")
+import streamlit as st
+import pandas as pd
+from streamlit_gsheets import GSheetsConnection
+from datetime import datetime
+from fpdf import FPDF
+import base64
 
-    if not df_clients.empty and not df_mats.empty:
-        # 1. إعدادات الوثيقة
+# --- الإعدادات ---
+st.set_page_config(page_title="MVAC Pro System", layout="wide", page_icon="❄️")
+
+conn = st.connection("gsheets", type=GSheetsConnection)
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1D5ogjG53HMl791W1RfHDEk0ngom0P4uf-cCPWgBjwAs/edit"
+
+def load_data(sheet_name):
+    try:
+        st.cache_data.clear()
+        df = conn.read(spreadsheet=SHEET_URL, worksheet=sheet_name, ttl=0)
+        return df.fillna("").astype(str).replace(r'\.0$', '', regex=True)
+    except: return pd.DataFrame()
+
+# --- القائمة الجانبية ---
+page = st.sidebar.radio("اختار الصفحة:", ["👥 إدارة الزبناء", "📦 إدارة السلعة", "📄 إنشاء Devis/Facture"])
+
+# ==========================================
+# 📄 صفحة إنشاء Devis / Facture
+# ==========================================
+if page == "📄 إنشاء Devis/Facture":
+    st.title("📄 إنشاء وثيقة تجارية (MVAC)")
+    
+    df_c = load_data("Customers")
+    df_m = load_data("Materiels")
+
+    if not df_c.empty and not df_m.empty:
+        # 1. معلومات الوثيقة
         with st.container(border=True):
-            c1, c2, c3 = st.columns([1, 2, 1])
-            doc_type = c1.selectbox("نوع الوثيقة:", ["DEVIS", "FACTURE"])
-            selected_client = c2.selectbox("اختار الزبون:", df_clients["الاسم/الشركة"].unique())
-            doc_date = c3.date_input("التاريخ", datetime.now())
-            
-            # جلب معلومات الزبون المختار
-            client_info = df_clients[df_clients["الاسم/الشركة"] == selected_client].iloc[0]
+            col1, col2, col3 = st.columns([1, 2, 1])
+            d_type = col1.selectbox("نوع الوثيقة:", ["DEVIS", "FACTURE"])
+            client = col2.selectbox("اختار الزبون:", df_c["الاسم/الشركة"].unique())
+            d_date = col3.date_input("التاريخ", datetime.now())
+            d_num = st.text_input("رقم الوثيقة (N°):", value="A0045")
 
-        # 2. إدارة الأسطر
-        if 'invoice_items' not in st.session_state: st.session_state.invoice_items = []
+        # 2. إدارة الأسطر (Items)
+        if 'items' not in st.session_state: st.session_state.items = []
 
         with st.container(border=True):
-            st.subheader("🛒 إضافة السلعة")
+            st.subheader("🛒 إضافة سلعة")
             i1, i2, i3 = st.columns([3, 1, 1])
-            sel_mat = i1.selectbox("السلعة:", df_mats["السلعة"].unique())
+            sel_m = i1.selectbox("السلعة:", df_m["السلعة"].unique())
             qte = i2.number_input("الكمية:", min_value=1, value=1)
+            
             if i3.button("➕ إضافة"):
-                m_info = df_mats[df_mats["السلعة"] == sel_mat].iloc[0]
-                price = float(m_info["ثمن الوحدة"])
-                st.session_state.invoice_items.append({
-                    "Désignation": sel_mat, "U": m_info["الوحدة"],
+                m_info = df_m[df_m["السلعة"] == sel_m].iloc[0]
+                price = float(str(m_info["ثمن الوحدة"]).replace(',', '.').strip())
+                st.session_state.items.append({
+                    "Désignation": sel_m, "U": m_info["الوحدة"],
                     "Qte": qte, "P.U HT": price, "Total HT": price * qte
                 })
                 st.rerun()
 
-        # 3. عرض الجدول والتحكم في الأسطر
-        if st.session_state.invoice_items:
-            df_inv = pd.DataFrame(st.session_state.invoice_items)
-            st.table(df_inv)
-            
-            # زر مسح آخر سطر
-            if st.button("⬅️ مسح آخر سطر"):
-                st.session_state.invoice_items.pop()
-                st.rerun()
+        # 3. عرض الجدول والحذف سطر بسطر
+        if st.session_state.items:
+            df_inv = pd.DataFrame(st.session_state.items)
+            st.write("### الجدول الحالي:")
+            for idx, row in df_inv.iterrows():
+                c_txt, c_del = st.columns([6, 1])
+                c_txt.info(f"{row['Désignation']} | {row['Qte']} {row['U']} x {row['P.U HT']} DH")
+                if c_del.button("🗑️", key=f"del_{idx}"):
+                    st.session_state.items.pop(idx)
+                    st.rerun()
 
+            # 4. الحسابات والـ Commission
             st.markdown("---")
-            
-            # --- 💰 خاصية التخفيض (Commission/Remise) ---
-            col_calc1, col_calc2 = st.columns([2, 1])
-            with col_calc2:
-                discount_pc = st.number_input("تخفيض / Remise (%)", min_value=0, max_value=100, value=0)
+            res1, res2 = st.columns([2, 1])
+            with res2:
+                # خانة التخفيض (Commission)
+                comm_pc = st.number_input("Remise / Commission (%)", min_value=0, max_value=100, value=0)
                 
-                total_ht_raw = df_inv["Total HT"].sum()
-                discount_val = total_ht_raw * (discount_pc / 100)
-                total_ht_final = total_ht_raw - discount_val
-                tva = total_ht_final * 0.20
-                total_ttc = total_ht_final + tva
+                sum_ht = df_inv["Total HT"].sum()
+                val_rem = sum_ht * (comm_pc / 100)
+                net_ht = sum_ht - val_rem
+                tva = net_ht * 0.20
+                total_ttc = net_ht + tva
 
-                st.write(f"**Total HT Brut:** {total_ht_raw:,.2f} DH")
-                if discount_pc > 0:
-                    st.write(f"**Remise ({discount_pc}%):** -{discount_val:,.2f} DH")
-                st.write(f"**Total HT Net:** {total_ht_final:,.2f} DH")
-                st.write(f"**TVA (20%):** {tva:,.2f} DH")
+                st.write(f"Total HT Brut: **{sum_ht:,.2f} DH**")
+                if comm_pc > 0:
+                    st.write(f"Remise ({comm_pc}%): **-{val_rem:,.2f} DH**")
+                st.write(f"TVA (20%): **{tva:,.2f} DH**")
                 st.error(f"### TOTAL TTC: {total_ttc:,.2f} DH")
 
-            # 4. زر تحميل الـ PDF (تحضير الملف)
-            if st.button("📥 Télécharger PDF"):
-                # كود بسيط لتوليد PDF (مثال توضيحي)
+            # 5. تصدير PDF
+            if st.button("📥 تحميل PDF"):
                 pdf = FPDF()
                 pdf.add_page()
                 pdf.set_font("Arial", 'B', 16)
-                pdf.cell(200, 10, txt=f"MVAC - {doc_type}", ln=True, align='C')
+                pdf.cell(0, 10, f"MVAC - {d_type}", ln=True, align='C')
                 pdf.set_font("Arial", '', 12)
-                pdf.cell(200, 10, txt=f"Client: {selected_client}", ln=True)
-                pdf.cell(200, 10, txt=f"Date: {doc_date}", ln=True)
-                pdf.cell(200, 10, txt=f"Total TTC: {total_ttc:,.2f} DH", ln=True)
+                pdf.cell(0, 10, f"Client: {client} | Date: {d_date}", ln=True)
+                pdf.ln(10)
+                pdf.cell(0, 10, f"Total TTC: {total_ttc:,.2f} DH", ln=True)
                 
-                # تحميل الملف
-                pdf_output = pdf.output(dest='S').encode('latin-1')
-                b64 = base64.b64encode(pdf_output).decode()
-                href = f'<a href="data:application/octet-stream;base64,{b64}" download="{doc_type}_{selected_client}.pdf">اضغط هنا لتحميل الملف PDF 📄</a>'
+                pdf_bytes = pdf.output().encode('latin-1')
+                b64 = base64.b64encode(pdf_bytes).decode()
+                href = f'<a href="data:application/pdf;base64,{b64}" download="{d_type}.pdf">تحميل الملف 📄</a>'
                 st.markdown(href, unsafe_allow_html=True)
 
-    else:
-        st.warning("⚠️ عمر البيانات في 'الزبناء' و 'السلعة' أولاً.")
+    else: st.warning("دخل السلعة والكليان هما الأولين!")
+
+# ==========================================
+# 👥 صفحات إدارة الزبناء والسلعة
+# ==========================================
+elif page == "👥 إدارة الزبناء":
+    st.title("👥 إدارة الزبناء")
+    # (هنا حط كود الزبناء اللي عطيتك قبل)
+    
+elif page == "📦 إدارة السلعة":
+    st.title("📦 إدارة السلعة")
+    # (هنا حط كود السلعة اللي عطيتك قبل)

@@ -1,79 +1,66 @@
 import streamlit as st
-import pandas as pd
 from streamlit_gsheets import GSheetsConnection
+import pandas as pd
 
-# إعداد الصفحة
-st.set_page_config(page_title="MVAC Control Panel", layout="wide", page_icon="❄️")
+# إعدادات الصفحة
+st.set_page_config(page_title="نظام MVAC لإدارة الزبناء", layout="wide")
 
-# الربط مع Google Sheets (الرابط النقي)
+# رابط ملف Google Sheet الخاص بك
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1D5ogjG53HMI791W1RfHDEk0ngom0P4uf-cCPWgBjwAs/edit#gid=0"
+
+# إنشاء الاتصال باستخدام Secrets التي أدخلتها
 conn = st.connection("gsheets", type=GSheetsConnection)
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1D5ogjG53HMI791W1RfHDEk0ngom0P4uf-cCPWgBjwAs/edit"
 
-# دالة لجلب البيانات مع الأعمدة اللي في الصورة ديالك
-def get_data(worksheet_name):
-    try:
-        return conn.read(spreadsheet=SHEET_URL, worksheet=worksheet_name)
-    except:
-        # ترتيب الأعمدة كما في صورتك: ID, الاسم/الشركة, النوع, ICE, الهاتف, العنوان, RIB
-        return pd.DataFrame(columns=["ID", "الاسم/الشركة", "النوع", "ICE", "الهاتف", "العنوان", "RIB"])
+st.title("📊 إدارة بيانات الزبناء - MVAC")
 
-# القائمة الجانبية
-with st.sidebar:
-    st.title("M-VAC Pro")
-    choice = st.radio("اختار الصفحة:", ["🏠 الرئيسية", "👥 إدارة الزبناء", "📦 السلعة والمخزون"])
-    st.info("نظام تسيير MVAC - سفيان")
+try:
+    # قراءة البيانات من ورقة "Clients"
+    # سيقوم الكود بجلب جميع الأعمدة (الاسم، ICE، الهاتف، العنوان، RIB) أوتوماتيكياً
+    df = conn.read(spreadsheet=SHEET_URL, worksheet="Clients")
+    st.success("✅ تم الاتصال بقاعدة البيانات بنجاح!")
+except Exception as e:
+    st.error(f"⚠️ خطأ في الاتصال: {e}")
+    # جدول احتياطي في حالة فشل الاتصال الأولي لتجنب توقف التطبيق
+    df = pd.DataFrame(columns=["الاسم/الشركة", "ICE", "الهاتف", "العنوان", "RIB"])
 
-# --- صفحة إدارة الزبناء ---
-if choice == "👥 إدارة الزبناء":
-    st.title("👥 إدارة الزبناء")
-    db_clients = get_data("Clients")
-    
-    is_editing = 'editing_client_id' in st.session_state
-    
-    with st.expander("➕ إضافة / 🛠️ تعديل زبون", expanded=is_editing):
-        with st.form("client_form", clear_on_submit=True):
-            col1, col2 = st.columns(2)
-            # تعبئة البيانات تلقائياً لو كنا في وضع التعديل
-            c_def = db_clients[db_clients["ID"] == st.session_state.editing_client_id].iloc[0] if is_editing else None
+# عرض الجدول الرئيسي للزبناء
+st.subheader("📋 قائمة الزبناء الحاليين")
+st.dataframe(df, use_container_width=True)
+
+# إضافة زبون جديد (نموذج إدخال)
+with st.expander("➕ إضافة زبون جديد"):
+    with st.form("new_client_form"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            nom = st.text_input("الاسم أو اسم الشركة")
+            tel = st.text_input("رقم الهاتف")
+            addr = st.text_input("العنوان الكامل")
             
-            name = col1.text_input("الاسم / الشركة", value=c_def["الاسم/الشركة"] if is_editing else "")
-            type_c = col2.selectbox("النوع", ["Particulier", "Société"], index=0 if (not is_editing or c_def["النوع"]=="Particulier") else 1)
-            phone = col1.text_input("الهاتف", value=c_def["الهاتف"] if is_editing else "")
-            ice = col2.text_input("ICE", value=c_def["ICE"] if is_editing else "")
-            addr = col1.text_input("العنوان", value=c_def["العنوان"] if is_editing else "")
-            rib = col2.text_input("RIB", value=c_def["RIB"] if is_editing else "")
-            
-            if st.form_submit_button("حفظ البيانات"):
-                if name:
-                    if is_editing:
-                        db_clients.loc[db_clients["ID"] == st.session_state.editing_client_id, 
-                                     ["الاسم/الشركة","النوع","الهاتف","ICE","العنوان","RIB"]] = [name, type_c, phone, ice, addr, rib]
-                        del st.session_state.editing_client_id
-                    else:
-                        # تحويل ID لرقم والزيادة عليه
-                        new_id = int(db_clients["ID"].astype(float).max() + 1) if not db_clients.empty else 1
-                        new_row = pd.DataFrame([{"ID":new_id,"الاسم/الشركة":name,"النوع":type_c,"ICE":ice,"الهاتف":phone,"العنوان":addr,"RIB":rib}])
-                        db_clients = pd.concat([db_clients, new_row], ignore_index=True)
-                    
-                    conn.update(spreadsheet=SHEET_URL, worksheet="Clients", data=db_clients)
-                    st.success("✅ تم الحفظ بنجاح!")
-                    st.rerun()
-
-    # عرض البيانات
-    st.markdown("---")
-    st.dataframe(db_clients, use_container_width=True)
-
-    # أزرار التعديل والحذف
-    for i, r in db_clients.iterrows():
-        c1, c2, c3 = st.columns([4, 1, 1])
-        c1.write(f"**{r['الاسم/الشركة']}**")
-        if c2.button("📝", key=f"edit_{r['ID']}"):
-            st.session_state.editing_client_id = r['ID']
-            st.rerun()
-        if c3.button("🗑️", key=f"del_{r['ID']}"):
-            db_clients = db_clients[db_clients["ID"] != r['ID']]
-            conn.update(spreadsheet=SHEET_URL, worksheet="Clients", data=db_clients)
-            st.rerun()
-
-else:
-    st.write("الصفحة قيد التفعيل...")
+        with col2:
+            ice = st.text_input("رقم ICE")
+            rib = st.text_input("رقم الحساب البنكي (RIB)")
+        
+        submit_button = st.form_submit_button("حفظ البيانات في Google Sheet")
+        
+        if submit_button:
+            if nom: # التأكد من إدخال الاسم على الأقل
+                # إنشاء سطر جديد مطابق لتنسيق الجدول
+                new_entry = pd.DataFrame([{
+                    "الاسم/الشركة": nom,
+                    "ICE": ice,
+                    "الهاتف": tel,
+                    "العنوان": addr,
+                    "RIB": rib
+                }])
+                
+                # دمج البيانات الجديدة مع البيانات القديمة
+                updated_df = pd.concat([df, new_entry], ignore_index=True)
+                
+                # تحديث ملف Google Sheet
+                conn.update(spreadsheet=SHEET_URL, worksheet="Clients", data=updated_df)
+                
+                st.success(f"✅ تمت إضافة {nom} بنجاح!")
+                st.rerun() # إعادة تحميل الصفحة لإظهار البيانات الجديدة
+            else:
+                st.warning("المرجو إدخال اسم الزبون أو الشركة.")

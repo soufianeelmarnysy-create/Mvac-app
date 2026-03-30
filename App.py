@@ -1,52 +1,33 @@
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
-import pandas as pd
 
-st.set_page_config(page_title="نظام MVAC", layout="wide")
+# 1. إعدادات الصفحة (العنوان والأيقونة)
+st.set_page_config(page_title="MVAC Control Panel", layout="wide", page_icon="❄️")
 
-# الرابط المباشر للملف (تأكد من gists أو gid)
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1D5ogjG53HMI791W1RfHDEk0ngom0P4uf-cCPWgBjwAs/edit#gid=0"
+# 2. القائمة الجانبية (Sidebar) - هادي هي اللي كتديك لكل صفحة
+with st.sidebar:
+    st.title("M-VAC Pro")
+    st.markdown("---")
+    # هنا كتحط الاختيارات ديالك
+    choice = st.radio(
+        "اختار الصفحة:",
+        ["🏠 الصفحة الرئيسية", "👥 إدارة الزبناء", "📦 السلعة والمخزون", "📄 إنشاء فاتورة"]
+    )
+    st.markdown("---")
+    st.info("نظام تسيير شركة MVAC")
 
-conn = st.connection("gsheets", type=GSheetsConnection)
+# 3. المنطق ديال التنقل (بناءً على الاختيار، كتبان الصفحة)
+if choice == "🏠 الصفحة الرئيسية":
+    st.title("مرحباً بك في MVAC")
+    st.write("هادي هي لوحة التحكم الرئيسية. اختار من القائمة على اليسار باش تبدا الخدمة.")
 
-st.title("📊 إدارة بيانات الزبناء - MVAC")
+elif choice == "👥 إدارة الزبناء":
+    st.title("قائمة الزبناء")
+    st.write("هنا غادي نزيدو من بعد الفورم (Form) باش تسجل كاع الشركات والناس اللي خدام معاهم.")
 
-try:
-    # قراءة البيانات من ورقة "Clients"
-    df = conn.read(spreadsheet=SHEET_URL, worksheet="Clients")
-    st.success("✅ تم الاتصال بقاعدة البيانات بنجاح!")
-except Exception as e:
-    st.error(f"⚠️ تنبيه: {e}")
-    # جدول احتياطي بنفس ترتيب أعمدة الصورة ديالك
-    df = pd.DataFrame(columns=["الاسم/الشركة", "ICE", "الهاتف", "العنوان", "RIB"])
+elif choice == "📦 السلعة والمخزون":
+    st.title("تسيير السلعة")
+    st.write("هنا غادي نديرو جدول فيه السلعة (نحاس، غاز، مكيفات...) والثمن ديال كل حاجة.")
 
-# عرض الجدول
-st.subheader("📋 قائمة الزبناء الحاليين")
-st.dataframe(df, use_container_width=True)
-
-# إضافة زبون جديد بنفس ترتيب Google Sheet
-with st.expander("➕ إضافة زبون جديد"):
-    with st.form("new_client"):
-        c1, c2 = st.columns(2)
-        with c1:
-            nom = st.text_input("الاسم/الشركة")
-            tel = st.text_input("الهاتف")
-            addr = st.text_input("العنوان")
-        with c2:
-            ice = st.text_input("ICE")
-            rib = st.text_input("RIB")
-        
-        submit = st.form_submit_button("حفظ البيانات")
-        
-        if submit:
-            if nom:
-                # ترتيب البيانات مطابق للصورة
-                new_row = pd.DataFrame([{"الاسم/الشركة": nom, "ICE": ice, "الهاتف": tel, "العنوان": addr, "RIB": rib}])
-                updated_df = pd.concat([df, new_row], ignore_index=True)
-                
-                # تحديث الملف
-                conn.update(spreadsheet=SHEET_URL, worksheet="Clients", data=updated_df)
-                st.success(f"تمت إضافة {nom} بنجاح!")
-                st.rerun()
-            else:
-                st.warning("المرجو إدخال اسم الزبون على الأقل.")
+elif choice == "📄 إنشاء فاتورة":
+    st.title("المحاسبة والفواتير")
+    st.write("هنا فين غادي نجمعو السلعة واليد العاملة والكوميسيون باش نخرجو PDF.")

@@ -186,7 +186,7 @@ else:
 # ==========================================
 # 📄 5. صفحة إنشاء الفاتورة (الجديدة)
 # ==========================================
-else:
+elif:
     st.title("📄 إنشاء Devis / Facture")
     df_c = load_data("Customers")
     df_m = load_data("Materiels")

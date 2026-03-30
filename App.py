@@ -7,7 +7,8 @@ st.set_page_config(page_title="MVAC Control Panel", layout="wide", page_icon="�
 
 # الربط مع Google Sheets (الرابط النقي)
 conn = st.connection("gsheets", type=GSheetsConnection)
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1D5ogjG53HMI791W1RfHDEk0ngom0P4uf-cCPWgBjwAs/edit"
+# هاد الرابط "نقي" ما فيه لا gid لا #
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1D5ogjG53HMl791W1RfHDEk0ngom0P4uf-cCPWgBjwAs/edit"
 
 # دالة لجلب البيانات مع الأعمدة اللي في الصورة ديالك
 def get_data(worksheet_name):

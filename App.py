@@ -2,91 +2,115 @@ import streamlit as st
 import pandas as pd
 from streamlit_gsheets import GSheetsConnection
 
-# 1. إعداد الصفحة
+# =========================================================
+# 1. إعدادات الصفحة والربط (الأساس)
+# =========================================================
 st.set_page_config(page_title="MVAC Pro System", layout="wide", page_icon="❄️")
 
-# 2. الربط
 conn = st.connection("gsheets", type=GSheetsConnection)
 SHEET_ID = "1D5ogjG53HMI791W1RfHDEk0ngom0P4uf-cCPWgBjwAs"
 
-# 3. دالة جلب البيانات
+# دالة ذكية لجلب البيانات وتصحيح أنواع الجداول
 def load_data(sheet_name, cols):
     try:
         df = conn.read(spreadsheet=SHEET_ID, worksheet=sheet_name, ttl=0)
         if df.empty: return pd.DataFrame(columns=cols)
-        # توحيد نوع البيانات في العمود ID
         if "ID" in df.columns:
             df["ID"] = pd.to_numeric(df["ID"], errors='coerce').fillna(0).astype(int)
         return df
-    except: return pd.DataFrame(columns=cols)
+    except:
+        return pd.DataFrame(columns=cols)
 
-# --- القائمة الجانبية للتنقل ---
+# =========================================================
+# 2. القائمة الجانبية (Sidebar) - هادي هي اللي فيها المنيو
+# =========================================================
 with st.sidebar:
     st.title("❄️ MVAC SYSTEM")
-    st.image("https://cdn-icons-png.flaticon.com/512/906/906334.png", width=100) # أيقونة افتراضية
     page = st.radio("اختار الصفحة:", ["👥 إدارة الزبناء", "📦 السلعة والمخزون", "📄 إنشاء Devis/Facture"])
     st.markdown("---")
     st.write("سفيان - نظام تسيير MVAC")
 
-# --- 1. صفحة الزبناء ---
+# =========================================================
+# 3. صـفـحـة إدارة الـزبـنـاء (Clients)
+# =========================================================
 if page == "👥 إدارة الزبناء":
     st.title("👥 إدارة الزبناء")
     df_c = load_data("Clients", ["ID", "الاسم/الشركة", "النوع", "ICE", "الهاتف", "العنوان", "RIB"])
-    
-    # (هنا حط كود الزبناء اللي عطيتك في الأول باش تقدر تزيد وتعدل)
-    st.dataframe(df_c, use_container_width=True, hide_index=True)
 
-# --- 2. صفحة السلعة والمخزون ---
+    # --- الجزء الخاص بـ (AJOUTER / MODIFIER) ---
+    if "edit_id_c" not in st.session_state: st.session_state.edit_id_c = None
+
+    with st.expander("➕ إضافة / 🛠️ تعديل بيانات زبون", expanded=(st.session_state.edit_id_c is not None)):
+        with st.form("form_client", clear_on_submit=True):
+            # إلى كنا فوضع التعديل، كنجبدو البيانات القديمة
+            curr = df_c[df_c["ID"] == st.session_state.edit_id_c].iloc[0] if st.session_state.edit_id_c else None
+            
+            c1, c2 = st.columns(2)
+            name = c1.text_input("الاسم/الشركة *", value=curr["الاسم/الشركة"] if curr is not None else "")
+            tel = c2.text_input("الهاتف", value=curr["الهاتف"] if curr is not None else "")
+            ice = c1.text_input("ICE", value=curr["ICE"] if curr is not None else "")
+            rib = c2.text_input("RIB", value=curr["RIB"] if curr is not None else "")
+            type_c = st.selectbox("النوع", ["Particulier", "Société"], index=0 if (curr is None or curr["النوع"]=="Particulier") else 1)
+            addr = st.text_area("العنوان", value=curr["العنوان"] if curr is not None else "")
+
+            if st.form_submit_button("حفظ التغييرات"):
+                if name:
+                    if st.session_state.edit_id_c: # تعديل
+                        df_c.loc[df_c["ID"] == st.session_state.edit_id_c, ["الاسم/الشركة", "الهاتف", "ICE", "RIB", "العنوان", "النوع"]] = [name, tel, ice, rib, addr, type_c]
+                        st.session_state.edit_id_c = None
+                    else: # إضافة جديد
+                        new_id = int(df_c["ID"].max() + 1) if not df_c.empty else 1
+                        new_row = pd.DataFrame([{"ID":new_id, "الاسم/الشركة":name, "الهاتف":tel, "ICE":ice, "RIB":rib, "العنوان":addr, "النوع":type_c}])
+                        df_c = pd.concat([df_c, new_row], ignore_index=True)
+                    
+                    conn.update(spreadsheet=SHEET_ID, worksheet="Clients", data=df_c)
+                    st.success("✅ تم الحفظ بنجاح!"); st.rerun()
+
+    # --- الجزء الخاص بـ (RECHERCHE / SUPPRIMER) ---
+    search = st.text_input("🔍 بحث ساريع عن زبون:")
+    disp_c = df_c[df_c["الاسم/الشركة"].astype(str).str.contains(search, case=False, na=False)] if search else df_c
+
+    st.markdown("### قائمة الزبناء")
+    for i, row in disp_c.iterrows():
+        col1, col2, col3 = st.columns([6, 1, 1])
+        col1.write(f"👤 **{row['الاسم/الشركة']}** | 📞 {row['الهاتف']}")
+        # زر التعديل
+        if col2.button("📝", key=f"edit_c_{row['ID']}"):
+            st.session_state.edit_id_c = row['ID']; st.rerun()
+        # زر الحذف
+        if col3.button("🗑️", key=f"del_c_{row['ID']}"):
+            df_c = df_c[df_c["ID"] != row['ID']]
+            conn.update(spreadsheet=SHEET_ID, worksheet="Clients", data=df_c); st.rerun()
+    
+    st.dataframe(disp_c, use_container_width=True, hide_index=True)
+
+# =========================================================
+# 4. صـفـحـة الـسـلـعـة (Materiels)
+# =========================================================
 elif page == "📦 السلعة والمخزون":
     st.title("📦 إدارة السلعة والمخزون")
     df_m = load_data("Materiels", ["ID", "التعيين", "الوحدة", "الثمن", "الكمية"])
-    
-    with st.expander("➕ إضافة مادة (Article) جديدة"):
-        with st.form("add_materiel"):
+
+    with st.expander("➕ إضافة مادة (Article) جديدة للمخزن"):
+        with st.form("form_mat"):
             c1, c2, c3 = st.columns([3, 1, 1])
-            nom = c1.text_input("تعيين المادة (Désignation)")
-            unit = c2.selectbox("الوحدة", ["U", "M", "M2", "ML", "Kg"])
-            price = c3.number_input("الثمن الوحدوي (DH)", min_value=0.0)
-            
-            if st.form_submit_button("حفظ المادة"):
-                if nom:
+            designation = c1.text_input("اسم السلعة (Désignation)")
+            unite = c2.selectbox("الوحدة", ["U", "M", "M2", "ML", "Kg"])
+            prix = c3.number_input("الثمن الوحدوي (DH)", min_value=0.0)
+            if st.form_submit_button("إضافة للمخزن"):
+                if designation:
                     new_id = int(df_m["ID"].max() + 1) if not df_m.empty else 1
-                    new_row = pd.DataFrame([{"ID":new_id, "التعيين":nom, "الوحدة":unit, "الثمن":price, "الكمية": 0}])
+                    new_row = pd.DataFrame([{"ID":new_id, "التعيين":designation, "الوحدة":unite, "الثمن":prix, "الكمية":0}])
                     df_m = pd.concat([df_m, new_row], ignore_index=True)
                     conn.update(spreadsheet=SHEET_ID, worksheet="Materiels", data=df_m)
-                    st.success("✅ تمت إضافة المادة!")
-                    st.rerun()
+                    st.success("✅ تمت إضافة السلعة!"); st.rerun()
 
     st.dataframe(df_m, use_container_width=True, hide_index=True)
 
-# --- 3. صفحة إنشاء Devis / Facture ---
+# =========================================================
+# 5. صـفـحـة الـفـواتـيـر (Devis/Facture)
+# =========================================================
 elif page == "📄 إنشاء Devis/Facture":
-    st.title("📄 محاكي إنشاء الوثائق")
-    
-    df_c = load_data("Clients", ["الاسم/الشركة"])
-    df_m = load_data("Materiels", ["التعيين", "الثمن", "الوحدة"])
-    
-    col1, col2, col3 = st.columns(3)
-    client = col1.selectbox("الزبون:", df_c["الاسم/الشركة"].unique())
-    doc_type = col2.radio("نوع الوثيقة:", ["Devis", "Facture"])
-    tva_rate = col3.selectbox("الضريبة TVA:", [20, 0, 14, 7])
-
-    st.markdown("---")
-    
-    # اختيار السلعة والحساب
-    sel_item = st.selectbox("اختار المادة من المخزون:", df_m["التعيين"].unique())
-    if sel_item:
-        item_data = df_m[df_m["التعيين"] == sel_item].iloc[0]
-        c1, c2, c3 = st.columns(3)
-        unit_price = c1.number_input("الثمن (DH):", value=float(item_data["الثمن"]))
-        qte = c2.number_input("الكمية:", min_value=1, value=1)
-        
-        total_ht = unit_price * qte
-        tva_amount = total_ht * (tva_rate / 100)
-        total_ttc = total_ht + tva_amount
-        
-        st.metric("إجمالي السطر (TTC)", f"{total_ttc:,.2} DH", delta=f"TVA: {tva_amount:,.2f}")
-        
-        if st.button("💾 حفظ السطر في الفاتورة"):
-            st.success(f"تم تسجيل {sel_item} في قائمة {doc_type}")
-            # الخطوة الجاية: نصاوبو PDF كيشبه للفواتير الحقيقية
+    st.title("📄 إنشاء وثيقة جديدة")
+    st.info("هنا كنجمعو بين الزبناء والسلعة باش نحسبو الفاتورة.")
+    # (قريباً غنزيدو هنا PDF generator)

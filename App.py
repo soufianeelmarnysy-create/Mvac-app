@@ -79,9 +79,7 @@ if page == "👥 إدارة الزبناء":
 # ==========================================
 elif page == "📦 إدارة السلعة":
     st.title("📦 إدارة السلعة (Materiels)")
-   st.title("📦 إدارة السلعة (Materiels)")
-
-df_m = load_data()
+   df_m = load_data()
 
 # --- أ: إضافة سلعة جديدة (Ajouter) ---
 with st.expander("➕ إضافة سلعة جديدة"):

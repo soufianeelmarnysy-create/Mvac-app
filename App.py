@@ -44,87 +44,94 @@ with st.sidebar:
     st.write("سفيان - MVAC v1.0")
 
 # ===========================================================================================================================================================================
-# 👥 3. صفحة إدارة الزبناء (نسخة احترافية)
-# =========================================================
 if page == "👥 إدارة الزبناء":
     st.title("👥 إدارة الزبناء")
     
     df_c = load_data("Customers")
 
-    # --- 1. إضافة زبون جديد ---
+    # --- أ: إضافة زبون جديد ---
     with st.expander("📝 إضافة زبون جديد"):
         with st.form("form_add", clear_on_submit=True):
-            col1, col2 = st.columns(2)
-            with col1:
-                t_c = st.selectbox("النوع", ["Particulier", "Société"], key="add_type")
+            c1, c2 = st.columns(2)
+            with c1:
+                t_c = st.selectbox("النوع", ["Particulier", "Société"])
                 n_c = st.text_input("الاسم أو الشركة *")
                 i_c = st.text_input("ICE")
-            with col2:
+            with c2:
                 r_c = st.text_input("RIB")
                 a_c = st.text_input("العنوان")
                 te_c = st.text_input("الهاتف")
             
-            if st.form_submit_button("حفظ ✅"):
+            if st.form_submit_button("حفظ فـ Google Sheets ✅"):
                 if n_c:
                     new_id = int(df_c["ID"].max() + 1) if not df_c.empty else 1
                     new_row = pd.DataFrame([[new_id, t_c, n_c, i_c, r_c, a_c, te_c]], columns=COLS_C)
                     df_updated = pd.concat([df_c, new_row], ignore_index=True)
                     if save_data("Customers", df_updated):
-                        st.success("تم الحفظ!")
+                        st.success("✅ تم الحفظ بنجاح!")
                         st.rerun()
+                else:
+                    st.warning("السمية ضرورية!")
 
     st.markdown("---")
 
-    # --- 2. البحث والتعديل والمسح ---
+    # --- ب: البحث والتعديل والمسح ---
     if not df_c.empty:
         st.subheader("🔍 البحث والتحكم")
         
-        # خانة البحث بالسمية
         search = st.text_input("قلب على كليان بالسمية أو ICE:")
-        df_filtered = df_c[df_c['الاسم/الشركة'].str.contains(search, case=False, na=False) | 
-                           df_c['ICE'].str.contains(search, case=False, na=False)]
+        
+        # تحويل الأعمدة لنصوص لتفادي AttributeError
+        df_c_search = df_c.copy().astype(str)
+        
+        # فلترة البيانات
+        df_filtered = df_c[
+            df_c_search['الاسم/الشركة'].str.contains(search, case=False, na=False) | 
+            df_c_search['ICE'].str.contains(search, case=False, na=False)
+        ]
 
-        # اختيار الكليان باش نعدلوه
-        selected_client_name = st.selectbox("اختار كليان باش تعدلو أو تمسحو:", ["---"] + df_filtered['الاسم/الشركة'].tolist())
+        # اختيار كليان من القائمة المفلترة
+        client_names = ["---"] + df_filtered['الاسم/الشركة'].tolist()
+        selected_client = st.selectbox("اختار كليان باش تعدلو أو تمسحو:", client_names)
 
-        if selected_client_name != "---":
-            # جلب معلومات الكليان المختار
-            client_info = df_c[df_c['الاسم/الشركة'] == selected_client_name].iloc[0]
-            idx = df_c[df_c['الاسم/الشركة'] == selected_client_name].index[0]
+        if selected_client != "---":
+            # جلب معلومات الكليان
+            idx = df_c[df_c['الاسم/الشركة'] == selected_client].index[0]
+            row = df_c.loc[idx]
 
             with st.container(border=True):
-                st.write(f"📝 تعديل بيانات: **{selected_client_name}**")
-                c1, c2 = st.columns(2)
-                with c1:
-                    new_type = st.selectbox("النوع", ["Particulier", "Société"], index=0 if client_info['النوع']=="Particulier" else 1)
-                    new_name = st.text_input("الاسم/الشركة", value=client_info['الاسم/الشركة'])
-                    new_ice = st.text_input("ICE", value=client_info['ICE'])
-                with c2:
-                    new_rib = st.text_input("RIB", value=client_info['RIB'])
-                    new_addr = st.text_input("العنوان", value=client_info['العنوان'])
-                    new_tel = st.text_input("الهاتف", value=client_info['الهاتف'])
+                st.write(f"📝 تعديل بيانات: **{selected_client}**")
+                col_edit1, col_edit2 = st.columns(2)
+                with col_edit1:
+                    edit_type = st.selectbox("النوع", ["Particulier", "Société"], 
+                                           index=0 if row['النوع']=="Particulier" else 1)
+                    edit_name = st.text_input("الاسم/الشركة", value=row['الاسم/الشركة'])
+                    edit_ice = st.text_input("ICE", value=row['ICE'])
+                with col_edit2:
+                    edit_rib = st.text_input("RIB", value=row['RIB'])
+                    edit_addr = st.text_input("العنوان", value=row['العنوان'])
+                    edit_tel = st.text_input("الهاتف", value=row['الهاتف'])
 
-                col_btn1, col_btn2 = st.columns([1, 4])
-                with col_btn1:
+                btn_edit, btn_del = st.columns([1, 4])
+                with btn_edit:
                     if st.button("تحديث 💾", type="primary"):
-                        df_c.loc[idx] = [client_info['ID'], new_type, new_name, new_ice, new_rib, new_addr, new_tel]
+                        df_c.loc[idx] = [row['ID'], edit_type, edit_name, edit_ice, edit_rib, edit_addr, edit_tel]
                         if save_data("Customers", df_c):
-                            st.success("تم التعديل!")
+                            st.success("تم التحديث!")
                             st.rerun()
-                
-                with col_btn2:
-                    if st.button("حذف الكليان 🗑️"):
+                with btn_del:
+                    if st.button("حذف 🗑️"):
                         df_c = df_c.drop(idx)
                         if save_data("Customers", df_c):
                             st.warning("تم الحذف!")
                             st.rerun()
 
-        # عرض الجدول الكامل
+        # عرض الجدول
         st.markdown("---")
-        st.write("### 📋 قائمة الزبناء الكاملة")
+        st.write("### 📋 قائمة الزبناء")
         st.dataframe(df_filtered, use_container_width=True, hide_index=True)
     else:
-        st.info("الجدول خاوي.")
+        st.info("الجدول خاوي حالياً.")
 # ===========================================================================================================================================================================
 # 📦 4. صفحة السلعة
 # =========================================================

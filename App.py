@@ -167,37 +167,17 @@ elif page == "📦 إدارة السلعة":
 # =========================================================
 # 📄 5. صفحة الفاتورة (Facturation)
 # =========================================================================================================================================================================
-import streamlit as st
-import pandas as pd
-from datetime import datetime
-from fpdf import FPDF
-import base64
-from num2words import num2words
-
-# --- 1. إعداد الصفحة وجلب البيانات ---
-st.set_page_config(page_title="MVAC SYSTEM", layout="wide")
-
-def load_data(sheet_name):
-    # هنا حط الكود ديال الربط مع Google Sheets اللي ديجا عندك
-    # هاد الدالة هي اللي كتجيب البيانات
-    pass 
-
-def save_data(sheet_name, df):
-    # هنا كود الحفظ فـ Google Sheets
-    pass
-
-# --- 2. واجهة التطبيق ---
-st.sidebar.title("❄️ MVAC SYSTEM")
-page = st.sidebar.radio("Choisir page:", ["الزبناء", "السلعة", "Devis / Facture"])
-
-if page == "Devis / Facture":
-    st.title("📄 Gestion des Factures & Devis PRO")
+    # =========================================================
+    # 📄 صفحة الفاتورة المتكاملة (النسخة الاحترافية لشركة M-VAC)
+    # =========================================================
+    st.header("📄 Gestion des Factures & Devis PRO")
     
+    # 1. جلب البيانات من السبريدشيت
     df_c = load_data("Customers")
     df_m = load_data("Materiels")
     df_f = load_data("Facturations")
 
-    # تنظيف البيانات
+    # تنظيف العناوين
     for df_tmp in [df_c, df_m, df_f]:
         if df_tmp is not None and not df_tmp.empty:
             df_tmp.columns = df_tmp.columns.str.strip()
@@ -205,32 +185,30 @@ if page == "Devis / Facture":
     if 'cart' not in st.session_state:
         st.session_state.cart = []
 
-    # 3. معلومات الوثيقة
+    # 2. إعدادات الوثيقة
     with st.container(border=True):
         c1, c2, c3 = st.columns([1, 2, 1])
-        d_type = c1.selectbox("Type", ["DEVIS", "FACTURE"])
-        
+        d_type = c1.selectbox("Type", ["DEVIS", "FACTURE"], key="mvac_type")
         c_list = df_c['الاسم/الشركة'].tolist() if (df_c is not None and not df_c.empty) else ["Client Standard"]
-        s_client = c2.selectbox("Client", c_list)
-        
+        s_client = c2.selectbox("Client", c_list, key="mvac_client")
         d_num = c3.text_input("N° Doc", value=f"{d_type[:1]}{datetime.now().strftime('%y%m%d%H%M')}")
 
-    # 4. إضافة السلع
+    # 3. إضافة السلع (Auto-fill)
     with st.container(border=True):
         i1, i2, i3, i4 = st.columns([3, 1, 1, 1])
         m_list = df_m['السلعة'].tolist() if (df_m is not None and not df_m.empty) else []
-        s_name = i1.selectbox("Article", m_list)
+        s_name = i1.selectbox("Article", m_list, key="mvac_art")
         
-        if not df_m.empty and s_name:
+        if (df_m is not None and not df_m.empty) and s_name:
             m_info = df_m[df_m['السلعة'] == s_name].iloc[0]
             unit_val = str(m_info.get('الوحدة', ''))
             price_val = float(m_info.get('ثمن الوحدة', 0))
         else:
             unit_val, price_val = "", 0.0
 
-        s_unit = i2.text_input("Unité", value=unit_val, key=f"u_{s_name}")
-        s_qte = i3.number_input("Qté", min_value=0.1, value=1.0)
-        s_price = i4.number_input("Prix HT", value=price_val)
+        s_unit = i2.text_input("Unité", value=unit_val, key="mvac_unit")
+        s_qte = i3.number_input("Qté", min_value=0.1, value=1.0, key="mvac_qte")
+        s_price = i4.number_input("Prix HT", value=price_val, key="mvac_price")
 
         if st.button("➕ Ajouter l'article", use_container_width=True):
             st.session_state.cart.append({
@@ -239,37 +217,43 @@ if page == "Devis / Facture":
             })
             st.rerun()
 
-    # 5. الحسابات والـ PDF
+    # 4. العرض والحسابات (التحويل للحروف)
     if st.session_state.cart:
         st.table(pd.DataFrame(st.session_state.cart))
         
         ht_brut = sum(item['Total_HT'] for item in st.session_state.cart)
         tva = ht_brut * 0.20
         ttc = ht_brut + tva
-        ttc_letters = num2words(ttc, lang='fr').upper() + " DIRHAMS"
+        
+        # تحويل المبلغ لحروف
+        try:
+            ttc_letters = num2words(ttc, lang='fr').upper() + " DIRHAMS"
+        except:
+            ttc_letters = "---"
 
-        st.info(f"**Arrêter à la somme de :** {ttc_letters}")
+        st.info(f"**Arrêter le présent document à la somme de :** {ttc_letters}")
 
+        # 5. أزرار الحفظ والـ PDF
         b1, b2, b3 = st.columns(3)
 
         if b1.button("💾 Enregistrer", type="primary", use_container_width=True):
             new_row = pd.DataFrame([[str(len(df_f)+1), datetime.now().strftime("%d/%m/%Y"), d_num, s_client, f"{ht_brut:.2f}", f"{tva:.2f}", f"{ttc:.2f}"]], 
                                    columns=["ID", "Date", "Num_Facture", "Client", "HT", "TVA", "TTC"])
             save_data("Facturations", pd.concat([df_f, new_row]))
-            st.success("✅ Enregistré !")
+            st.success("✅ Données sauvegardées !")
 
-        if b2.button("📥 Télécharger PDF PRO", use_container_width=True):
+        if b2.button("📥 Télécharger PDF M-VAC", use_container_width=True):
             pdf = FPDF()
             pdf.add_page()
             
-            # Header
+            # --- Header (Logo M-VAC) ---
             try: pdf.image("logo.png", 10, 8, 45)
-            except: pdf.set_font("Arial", 'B', 20); pdf.cell(0, 10, "MVAC SYSTEM", ln=1)
+            except: pdf.set_font("Arial", 'B', 16); pdf.cell(0, 10, "M-VAC SYSTEM", ln=1)
             
-            pdf.set_font("Arial", 'B', 15)
+            pdf.set_font("Arial", 'B', 14)
             pdf.cell(0, 10, d_type, ln=1, align='R')
             pdf.set_font("Arial", '', 10)
-            pdf.cell(0, 5, f"N: {d_num}", ln=1, align='R')
+            pdf.cell(0, 5, f"N°: {d_num}", ln=1, align='R')
             pdf.cell(0, 5, f"Date: {datetime.now().strftime('%d/%m/%Y')}", ln=1, align='R')
             
             pdf.ln(20)
@@ -278,8 +262,8 @@ if page == "Devis / Facture":
             pdf.cell(0, 10, f" CLIENT: {s_client}", 1, 1, 'L', True)
             pdf.ln(5)
 
-            # Table
-            pdf.set_fill_color(0, 80, 80)
+            # --- Table Design ---
+            pdf.set_fill_color(0, 70, 70)
             pdf.set_text_color(255, 255, 255)
             pdf.cell(85, 10, " DESIGNATION", 1, 0, 'L', True)
             pdf.cell(20, 10, "UNITE", 1, 0, 'C', True)
@@ -294,31 +278,32 @@ if page == "Devis / Facture":
                 pdf.cell(20, 8, item['Unité'], 1, 0, 'C')
                 pdf.cell(15, 8, str(item['Qte']), 1, 0, 'C')
                 pdf.cell(30, 8, f"{item['PU_HT']:.2f}", 1, 0, 'R')
-                pdf.cell(40, 8, f"{item['Total_HT']:.2f}", 1, 1, 'R')
+                pdf.cell(45, 8, f"{item['Total_HT']:.2f}", 1, 1, 'R')
 
-            # Totals
+            # --- Totals ---
             pdf.ln(5)
             pdf.cell(150, 8, "TOTAL HT :", 0, 0, 'R')
             pdf.cell(40, 8, f"{ht_brut:.2f} DH", 1, 1, 'C')
-            pdf.cell(150, 8, "TOTAL TVA (20%) :", 0, 0, 'R')
+            pdf.cell(150, 8, "TOTAL TAXE (20%) :", 0, 0, 'R')
             pdf.cell(40, 8, f"{tva:.2f} DH", 1, 1, 'C')
             pdf.set_font("Arial", 'B', 11)
             pdf.cell(150, 10, "TOTAL TTC :", 0, 0, 'R')
             pdf.cell(40, 10, f"{ttc:.2f} DH", 1, 1, 'C', True)
 
+            # المبلغ بالحروف
             pdf.ln(10)
             pdf.set_font("Arial", 'B', 9)
             pdf.multi_cell(0, 8, f"ARRETER LE PRESENT {d_type} A LA SOMME DE : {ttc_letters}")
 
-            # Footer
+            # --- Footer (معلومات الشركة من الصورة) ---
             pdf.set_y(-35)
             pdf.set_font("Arial", 'I', 7)
-            footer_text = "MARNYSY VENTILATION ET AIR CONDITIONNELL SARL AU\nSiage: N 196 LOTISSEMENT LAYMOUNE BEN SOUDA FES\nTEL: 06 63 45 18 55 - 06 61 57 43 81 | Email: mvac.sarl@gmail.com\nRC: 77421 - PT: 13441130 - IF: 53885224 - CNSS: 4987116 - ICE: 003337844000039"
-            pdf.multi_cell(0, 4, footer_text, 0, 'C')
+            footer_txt = "MARNYSY VENTILATION ET AIR CONDITIONNELL SARL AU\nSiage: N 196 LOTISSEMENT LAYMOUNE BEN SOUDA FES\nTEL: 06 63 45 18 55 - 06 61 57 43 81 | Email: mvac.sarl@gmail.com\nRC: 77421 - PT: 13441130 - IF: 53885224 - CNSS: 4987116 - ICE: 003337844000039"
+            pdf.multi_cell(0, 4, footer_txt, 0, 'C')
 
             pdf_out = pdf.output(dest='S').encode('latin-1', errors='replace')
             b64 = base64.b64encode(pdf_out).decode()
-            st.markdown(f'<a href="data:application/pdf;base64,{b64}" download="{d_num}.pdf" style="text-decoration:none;"><button style="width:100%; background-color:#008080; color:white; padding:10px; border:none; border-radius:5px; cursor:pointer;">📥 Télécharger PDF</button></a>', unsafe_allow_html=True)
+            st.markdown(f'<a href="data:application/pdf;base64,{b64}" download="{d_num}.pdf" style="text-decoration:none;"><button style="width:100%; background-color:#004646; color:white; padding:12px; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">📥 Télécharger le PDF Officiel</button></a>', unsafe_allow_html=True)
 
         if b3.button("🔄 Nouveau"):
             st.session_state.cart = []

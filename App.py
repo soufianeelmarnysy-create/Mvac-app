@@ -169,10 +169,12 @@ elif page == "📦 إدارة السلعة":
 # =========================================================================================================================================================================
 # 📄 5. صفحة الفاتورة المتكاملة (Facturation Pro Edition)
 # =========================================================
+# 📄 5. صفحة الفاتورة المتكاملة (Version Finale Corrigée)
+# =========================================================
 else:
     st.title("📄 Gestion des Factures & Devis")
     
-    # 1. جلب البيانات
+    # 1. Chargement des données
     df_c = load_data("Customers")
     df_m = load_data("Materiels")
     df_f = load_data("Facturations")
@@ -180,7 +182,7 @@ else:
     if 'cart' not in st.session_state: 
         st.session_state.cart = []
 
-    # 🔍 2. Recherche (بقت كيفما هي مع تحسين العرض)
+    # 🔍 2. Recherche (Consultation)
     with st.expander("🔍 Recherche dans les archives"):
         if not df_f.empty:
             search_list = df_f['Num_Facture'].tolist()[::-1]
@@ -197,7 +199,8 @@ else:
 
     st.markdown("---")
 
-    if df_c.empty or df_m.empty:
+    # تصحيح شرط الظهور باش ما يبقاش يعطي Error فاش تزيد السلعة
+    if (df_c.empty or df_m.empty) and not st.session_state.cart:
         st.error("⚠️ Erreur: Veuillez remplir les listes Clients et Matériels d'abord!")
     else:
         # 3. Informations Document
@@ -208,17 +211,20 @@ else:
             s_client = c2.selectbox("Client", df_c['الاسم/الشركة'].tolist(), key="main_client")
             d_num = c3.text_input("N° Document", value=f"{d_type[:1]}{datetime.now().strftime('%y%m%d%H%M')}", key="main_num")
 
-        # 4. Ajout Articles
+        # 4. Ajout Articles (Correction Unité & Prix)
         with st.container(border=True):
             st.subheader("📦 Ajouter des articles")
             i1, i2, i3, i4 = st.columns([3, 1, 1, 1])
             
             s_name = i1.selectbox("Article", df_m['السلعة'].tolist(), key="item_sel")
+            
+            # جلب معلومات السلعة المختارة في الحين
             m_info = df_m[df_m['السلعة'] == s_name].iloc[0]
             
-            s_unit = i2.text_input("Unité", value=m_info['الوحدة'], key="u_fix")
-            s_qte = i3.number_input("Qté", min_value=0.1, value=1.0, step=0.5, key="q_fix")
-            s_price = i4.number_input("Prix HT (DH)", value=float(m_info['ثمن الوحدة']), key="p_fix")
+            # استعمال مفاتيح ديناميكية (Dynamic Keys) باش الـ Unité والـ Prix يتبدلو أوتوماتيكياً
+            s_unit = i2.text_input("Unité", value=str(m_info['الوحدة']), key=f"unit_{s_name}")
+            s_qte = i3.number_input("Qté", min_value=0.1, value=1.0, step=0.5, key=f"qte_{s_name}")
+            s_price = i4.number_input("Prix HT (DH)", value=float(m_info['ثمن الوحدة']), key=f"price_{s_name}")
 
             if st.button("➕ Ajouter au tableau", use_container_width=True, type="secondary"):
                 st.session_state.cart.append({
@@ -232,7 +238,7 @@ else:
 
         # 5. Affichage du tableau
         if st.session_state.cart:
-            st.markdown("### 🛒 Aperçu de la commande")
+            st.markdown("### 🛒 Aperçu du tableau")
             df_display = pd.DataFrame(st.session_state.cart)
             st.table(df_display)
 
@@ -265,84 +271,88 @@ else:
                 ]], columns=["ID", "Date", "Num_Facture", "Client", "HT", "TVA", "TTC"])
                 
                 if save_data("Facturations", pd.concat([df_f, new_f_data], ignore_index=True)):
-                    st.success("Données enregistrées!")
+                    st.success("✅ Données enregistrées dans Google Sheets!")
                     st.session_state.cart = []
                     st.rerun()
 
             if b2.button("📥 Générer PDF Pro", use_container_width=True):
-                # إعداد PDF احترافي
-                pdf = FPDF()
-                pdf.add_page()
-                
-                # Header
-                pdf.set_font("Arial", 'B', 20)
-                pdf.cell(0, 10, "MVAC SYSTEM", ln=True, align='L')
-                pdf.set_font("Arial", 'B', 12)
-                pdf.cell(0, 10, f"TYPE: {d_type} N: {d_num}", ln=True, align='R')
-                pdf.line(10, 30, 200, 30) # خط فاصل
-                
-                pdf.ln(10)
-                pdf.set_font("Arial", '', 11)
-                pdf.cell(100, 7, f"Client: {s_client}", ln=False)
-                pdf.cell(0, 7, f"Date: {datetime.now().strftime('%d/%m/%Y')}", ln=True, align='R')
-                pdf.ln(10)
-
-                # Table Header
-                pdf.set_fill_color(240, 240, 240)
-                pdf.set_font("Arial", 'B', 10)
-                pdf.cell(90, 10, "Designation", 1, 0, 'C', True)
-                pdf.cell(20, 10, "Unite", 1, 0, 'C', True)
-                pdf.cell(20, 10, "Qte", 1, 0, 'C', True)
-                pdf.cell(30, 10, "P.U HT", 1, 0, 'C', True)
-                pdf.cell(30, 10, "Total HT", 1, 1, 'C', True)
-
-                # Table Content
-                pdf.set_font("Arial", '', 10)
-                for item in st.session_state.cart:
-                    pdf.cell(90, 8, str(item['Désignation']), 1)
-                    pdf.cell(20, 8, str(item['Unité']), 1, 0, 'C')
-                    pdf.cell(20, 8, str(item['Qte']), 1, 0, 'C')
-                    pdf.cell(30, 8, f"{item['PU_HT']:.2f}", 1, 0, 'R')
-                    pdf.cell(30, 8, f"{item['Total_HT']:.2f}", 1, 1, 'R')
-
-                # Totals
-                pdf.ln(5)
-                pdf.set_font("Arial", 'B', 11)
-                pdf.cell(130, 8, "", 0)
-                pdf.cell(30, 8, "Total HT Net:", 0, 0, 'R')
-                pdf.cell(30, 8, f"{sum_ht_net:,.2f} DH", 1, 1, 'R')
-                
-                pdf.cell(130, 8, "", 0)
-                pdf.cell(30, 8, "TVA (20%):", 0, 0, 'R')
-                pdf.cell(30, 8, f"{sum_tva:,.2f} DH", 1, 1, 'R')
-
-                pdf.set_font("Arial", 'B', 13)
-                pdf.cell(130, 10, "", 0)
-                pdf.cell(30, 10, "TOTAL TTC:", 0, 0, 'R')
-                pdf.set_fill_color(255, 230, 230)
-                pdf.cell(30, 10, f"{sum_ttc:,.2f} DH", 1, 1, 'R', True)
-
-                # التصدير الآمن للـ PDF
                 try:
-                    # تحويل الـ output لـ bytes مباشرة (أحسن طريقة لـ fpdf2)
-                    pdf_bytes = pdf.output() 
-                    if isinstance(pdf_bytes, str): # للتعامل مع النسخ القديمة
+                    pdf = FPDF()
+                    pdf.add_page()
+                    
+                    # Header Pro
+                    pdf.set_font("Arial", 'B', 20)
+                    pdf.set_text_color(44, 62, 80)
+                    pdf.cell(0, 10, "MVAC SYSTEM", ln=True, align='L')
+                    pdf.set_font("Arial", 'B', 12)
+                    pdf.cell(0, 10, f"{d_type} N: {d_num}", ln=True, align='R')
+                    pdf.line(10, 30, 200, 30)
+                    
+                    pdf.ln(10)
+                    pdf.set_text_color(0, 0, 0)
+                    pdf.set_font("Arial", '', 11)
+                    pdf.cell(100, 7, f"Client: {s_client}", ln=False)
+                    pdf.cell(0, 7, f"Date: {datetime.now().strftime('%d/%m/%Y')}", ln=True, align='R')
+                    pdf.ln(10)
+
+                    # Table Header
+                    pdf.set_fill_color(52, 73, 94)
+                    pdf.set_text_color(255, 255, 255)
+                    pdf.set_font("Arial", 'B', 10)
+                    pdf.cell(90, 10, "Designation", 1, 0, 'C', True)
+                    pdf.cell(20, 10, "Unite", 1, 0, 'C', True)
+                    pdf.cell(20, 10, "Qte", 1, 0, 'C', True)
+                    pdf.cell(30, 10, "P.U HT", 1, 0, 'C', True)
+                    pdf.cell(30, 10, "Total HT", 1, 1, 'C', True)
+
+                    # Table Content
+                    pdf.set_text_color(0, 0, 0)
+                    pdf.set_font("Arial", '', 10)
+                    for item in st.session_state.cart:
+                        pdf.cell(90, 8, str(item['Désignation'])[:45], 1) # Limit string to 45 chars
+                        pdf.cell(20, 8, str(item['Unité']), 1, 0, 'C')
+                        pdf.cell(20, 8, str(item['Qte']), 1, 0, 'C')
+                        pdf.cell(30, 8, f"{item['PU_HT']:.2f}", 1, 0, 'R')
+                        pdf.cell(30, 8, f"{item['Total_HT']:.2f}", 1, 1, 'R')
+
+                    # Totals
+                    pdf.ln(5)
+                    pdf.set_font("Arial", 'B', 11)
+                    pdf.cell(130, 8, "", 0)
+                    pdf.cell(30, 8, "HT Net:", 0, 0, 'R')
+                    pdf.cell(30, 8, f"{sum_ht_net:,.2f}", 1, 1, 'R')
+                    
+                    pdf.cell(130, 8, "", 0)
+                    pdf.cell(30, 8, "TVA (20%):", 0, 0, 'R')
+                    pdf.cell(30, 8, f"{sum_tva:,.2f}", 1, 1, 'R')
+
+                    pdf.set_font("Arial", 'B', 13)
+                    pdf.cell(130, 10, "", 0)
+                    pdf.set_fill_color(231, 76, 60) # Red for Total
+                    pdf.set_text_color(255, 255, 255)
+                    pdf.cell(30, 10, "TOTAL TTC", 1, 0, 'C', True)
+                    pdf.set_text_color(0, 0, 0)
+                    pdf.cell(30, 10, f"{sum_ttc:,.2f} DH", 1, 1, 'R')
+
+                    # Export safe
+                    pdf_bytes = pdf.output()
+                    if isinstance(pdf_bytes, str):
                         pdf_bytes = pdf_bytes.encode('latin-1', errors='replace')
                     
                     b64_pdf = base64.b64encode(pdf_bytes).decode()
-                    href = f'<a href="data:application/pdf;base64,{b64_pdf}" download="{d_num}.pdf" style="text-decoration:none;"><button style="width:100%; background-color:#ff4b4b; color:white; border:none; padding:10px; border-radius:5px;">📥 Cliquer pour Télécharger le PDF</button></a>'
-                    st.markdown(href, unsafe_allow_html=True)
+                    # زر تحميل أنيق
+                    st.markdown(f'''
+                        <a href="data:application/pdf;base64,{b64_pdf}" download="{d_num}.pdf" style="text-decoration:none;">
+                            <div style="background-color:#2ecc71; color:white; padding:10px; text-align:center; border-radius:5px; font-weight:bold;">
+                                📥 Télécharger le PDF ({d_num})
+                            </div>
+                        </a>
+                    ''', unsafe_allow_html=True)
                 except Exception as e:
-                    st.error(f"Erreur PDF: {e}")
+                    st.error(f"Erreur lors de la génération: {e}")
 
             if b3.button("🔄 Vider le tableau", use_container_width=True):
                 st.session_state.cart = []
                 st.rerun()
-
-
-
-
-
-
 
 

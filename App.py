@@ -167,10 +167,10 @@ elif page == "📦 إدارة السلعة":
 # =========================================================
 # 📄 5. صفحة الفاتورة (Facturation)
 # ========================================================================================================================================================================
-elif page == "📄 Devis / Facture":
+    elif page == "📄 Devis / Facture":
     st.header("📄 Gestion des Factures & Devis PRO")
     
-    # 1. جلب البيانات (تأكد أن load_data فيها @st.cache_data(ttl=600) باش تحيد مشكل 429)
+    # 1. جلب البيانات
     df_c = load_data("Customers")
     df_m = load_data("Materiels")
     df_f = load_data("Facturations")
@@ -194,15 +194,16 @@ elif page == "📄 Devis / Facture":
         s_name = i1.selectbox("Article", [""] + m_list, key="art_sel")
         
         u_v, p_v = "", 0.0
-        if s_name != "":
+        # هاد الجزء هو اللي كان كيدير AttributeError في السطر 224
+        if s_name != "" and not df_m.empty:
             m_info = df_m[df_m['السلعة'] == s_name].iloc[0]
             u_v = str(m_info.get('الوحدة', ''))
             try: p_v = float(m_info.get('ثمن الوحدة', 0))
             except: p_v = 0.0
 
-        s_unit = i2.text_input("Unité", value=u_v)
-        s_qte = i3.number_input("Qté", min_value=0.1, value=1.0)
-        s_price = i4.number_input("Prix HT", value=p_v)
+        s_unit = i2.text_input("Unité", value=u_v, key="unit_input")
+        s_qte = i3.number_input("Qté", min_value=0.1, value=1.0, key="qte_input")
+        s_price = i4.number_input("Prix HT", value=p_v, key="price_input")
 
         if st.button("➕ Ajouter à la liste", use_container_width=True):
             if s_name != "":
@@ -231,65 +232,73 @@ elif page == "📄 Devis / Facture":
         tva_val = ht_net * 0.20
         ttc_total = ht_net + tva_val
 
-        # العرض بالأرقام (Metrics)
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Total HT", f"{ht_brut:,.2f}")
+        m1.metric("Total Brut HT", f"{ht_brut:,.2f}")
         m2.metric(f"Remise ({remise_pct}%)", f"-{remise_val:,.2f}")
         m3.metric("TVA (20%)", f"{tva_val:,.2f}")
         m4.metric("TOTAL TTC", f"{ttc_total:,.2f}")
 
-        try: ttc_letters = num2words(ttc_total, lang='fr').upper() + " DIRHAMS"
-        except: ttc_letters = "---"
+        try:
+            from num2words import num2words
+            ttc_letters = num2words(ttc_total, lang='fr').upper() + " DIRHAMS"
+        except:
+            ttc_letters = "---"
         st.info(f"**Somme en lettres :** {ttc_letters}")
 
         # 6. الأزرار
         b1, b2 = st.columns(2)
         
         if b1.button("💾 Enregistrer dans Sheets", type="primary", use_container_width=True):
+            items_summary = ", ".join([i['Désignation'] for i in st.session_state.cart])
             new_row = pd.DataFrame([[
                 str(len(df_f)+1), datetime.now().strftime("%d/%m/%Y"), d_type, d_num, 
-                s_client, f"{ht_net:.2f}", f"{tva_val:.2f}", f"{ttc_total:.2f}"
-            ]], columns=["ID", "Date", "Type", "Num_Facture", "Client", "HT", "TVA", "TTC"])
+                s_client, items_summary, f"{ht_net:.2f}", f"{tva_val:.2f}", f"{ttc_total:.2f}"
+            ]], columns=["ID", "Date", "Type", "Num_Facture", "Client", "Articles", "HT", "TVA", "TTC"])
             if save_data("Facturations", pd.concat([df_f, new_row])):
                 st.success("✅ Enregistré !")
 
-        # الجزء الحساس: تأكد أن كولشي داخل تحت "if b2.button"
+        # الجزء المهم: كولشي داخل تحت if b2.button
         if b2.button("📥 Télécharger PDF Officiel", use_container_width=True):
-            pdf = FPDF()
-            pdf.add_page()
-            
-            try: pdf.image("logo.png", 10, 8, 45)
-            except: pdf.set_font("Arial", 'B', 16); pdf.cell(0, 10, "M-VAC SYSTEM", ln=1)
-            
-            pdf.set_font("Arial", 'B', 12)
-            pdf.cell(0, 10, f"{d_type} N°: {d_num}", ln=1, align='R')
-            pdf.ln(20)
-            
-            # جدول السلع
-            pdf.set_fill_color(0, 60, 60); pdf.set_text_color(255, 255, 255)
-            pdf.cell(100, 10, " DESIGNATION", 1, 0, 'L', True)
-            pdf.cell(30, 10, "QTE", 1, 0, 'C', True)
-            pdf.cell(60, 10, "TOTAL HT", 1, 1, 'C', True)
-            
-            pdf.set_text_color(0, 0, 0); pdf.set_font("Arial", '', 9)
-            for item in st.session_state.cart:
-                pdf.cell(100, 8, f" {item['Désignation']}", 1)
-                pdf.cell(30, 8, f"{item['Qte']} {item['Unité']}", 1, 0, 'C')
-                pdf.cell(60, 8, f"{item['Total_HT']:.2f}", 1, 1, 'R')
+            try:
+                pdf = FPDF()
+                pdf.add_page()
+                
+                # Header
+                try: pdf.image("logo.png", 10, 8, 45)
+                except: pdf.set_font("Arial", 'B', 16); pdf.cell(0, 10, "M-VAC SYSTEM", ln=1)
+                
+                pdf.set_font("Arial", 'B', 12)
+                pdf.cell(0, 10, f"{d_type} N°: {d_num}", ln=1, align='R')
+                pdf.ln(20)
+                
+                # Table
+                pdf.set_fill_color(0, 60, 60); pdf.set_text_color(255, 255, 255)
+                pdf.cell(100, 10, " DESIGNATION", 1, 0, 'L', True)
+                pdf.cell(30, 10, "QTE", 1, 0, 'C', True)
+                pdf.cell(60, 10, "TOTAL HT", 1, 1, 'C', True)
+                
+                pdf.set_text_color(0, 0, 0); pdf.set_font("Arial", '', 9)
+                for item in st.session_state.cart:
+                    pdf.cell(100, 8, f" {item['Désignation']}", 1)
+                    pdf.cell(30, 8, f"{item['Qte']} {item['Unité']}", 1, 0, 'C')
+                    pdf.cell(60, 8, f"{item['Total_HT']:.2f}", 1, 1, 'R')
 
-            # المبالغ
-            pdf.ln(5); pdf.set_font("Arial", 'B', 10)
-            pdf.cell(130, 8, "TOTAL HT :", 0, 0, 'R'); pdf.cell(60, 8, f"{ht_net:.2f}", 1, 1, 'R')
-            pdf.cell(130, 8, "TVA (20%) :", 0, 0, 'R'); pdf.cell(60, 8, f"{tva_val:.2f}", 1, 1, 'R')
-            pdf.set_fill_color(230, 230, 230)
-            pdf.cell(130, 10, "TOTAL TTC :", 0, 0, 'R'); pdf.cell(60, 10, f"{ttc_total:.2f} DH", 1, 1, 'R', True)
-            
-            pdf.ln(10); pdf.multi_cell(0, 8, f"ARRETER LA SOMME A : {ttc_letters}")
+                # Totals
+                pdf.ln(5); pdf.set_font("Arial", 'B', 10)
+                pdf.cell(130, 8, "TOTAL HT NET :", 0, 0, 'R'); pdf.cell(60, 8, f"{ht_net:.2f}", 1, 1, 'R')
+                pdf.cell(130, 8, "TVA (20%) :", 0, 0, 'R'); pdf.cell(60, 8, f"{tva_val:.2f}", 1, 1, 'R')
+                pdf.set_fill_color(230, 230, 230)
+                pdf.cell(130, 10, "TOTAL TTC :", 0, 0, 'R'); pdf.cell(60, 10, f"{ttc_total:.2f} DH", 1, 1, 'R', True)
+                
+                pdf.ln(10); pdf.multi_cell(0, 8, f"ARRETER LA SOMME A : {ttc_letters}")
 
-            # السطر اللي كان كيدير المشكل (دابا راه داخل تحت الزر)
-            pdf_bytes = pdf.output(dest='S').encode('latin-1', errors='replace')
-            b64 = base64.b64encode(pdf_bytes).decode()
-            st.markdown(f'<a href="data:application/pdf;base64,{b64}" download="{d_num}.pdf" style="text-decoration:none;"><button style="width:100%; background-color:#005050; color:white; padding:10px; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">📥 Télécharger</button></a>', unsafe_allow_html=True)
+                # التصدير (داخل البلوك)
+                pdf_bytes = pdf.output(dest='S').encode('latin-1', errors='replace')
+                b64 = base64.b64encode(pdf_bytes).decode()
+                href = f'<a href="data:application/pdf;base64,{b64}" download="{d_num}.pdf" style="text-decoration:none;"><button style="width:100%; background-color:#005050; color:white; padding:10px; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">📥 Cliquer ici لتنزيل الملف</button></a>'
+                st.markdown(href, unsafe_allow_html=True)
+            except Exception as e:
+                st.error(f"خطأ في توليد PDF: {e}")
 
         if st.button("🔄 Nouveau"):
             st.session_state.cart = []; st.rerun()

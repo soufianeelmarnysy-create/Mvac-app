@@ -172,7 +172,7 @@ elif page == "📦 إدارة السلعة":
 elif page == "📄 Devis / Facture":
     st.title("📄 Devis / Facture")
     
-    # 1. جلب البيانات الأساسية
+    # 1. جلب البيانات
     df_c = load_data("Customers")
     df_m = load_data("Materiels")
     df_f = load_data("Facturations")
@@ -180,153 +180,144 @@ elif page == "📄 Devis / Facture":
     if 'cart' not in st.session_state:
         st.session_state.cart = []
 
-    # التحقق من البيانات
-    if df_c is None or df_m.empty:
+    if df_c is None or df_m is None or df_c.empty or df_m.empty:
         st.error("⚠️ خاصك تعمر الكليان والسلعة هوما اللولين فـ Google Sheets!")
     else:
-        # 2. إعدادات الوثيقة (الزبون والرقم)
+        # 2. إعدادات الوثيقة
         with st.container(border=True):
             c1, c2, c3 = st.columns([1, 2, 1])
-            d_type = c1.selectbox("نوع الوثيقة", ["DEVIS", "FACTURE"], key="main_type_k")
-            s_client = c2.selectbox("اختار الزبون", df_c['الاسم/الشركة'].tolist(), key="main_client_k")
-            d_num = c3.text_input("رقم الوثيقة", value=f"{datetime.now().strftime('%d/%y')}-{str(len(df_f)+1).zfill(2)}", key="main_num_k")
+            d_type = c1.selectbox("نوع الوثيقة", ["DEVIS", "FACTURE"], key="type_pro_k")
+            s_client = c2.selectbox("اختار الزبون", df_c['الاسم/الشركة'].tolist(), key="client_pro_k")
+            d_num = c3.text_input("رقم الوثيقة", value=f"{datetime.now().strftime('%y')}/{str(len(df_f)+1).zfill(3)}", key="num_pro_k")
 
-        # 3. إضافة السلعة (بالإصلاح الجديد)
+        # 3. إضافة السلعة (حل مشكل KeyError)
         with st.container(border=True):
             st.subheader("📦 إضافة السلع")
             i1, i2, i3, i4 = st.columns([3, 1, 1, 1])
-            s_name = i1.selectbox("اختار السلعة", df_m['السلعة'].tolist(), key="item_select_k")
+            s_name = i1.selectbox("اختار السلعة", df_m['السلعة'].tolist(), key="item_pro_k")
             
-            # جلب معلومات السلعة المختارة بالضبط
             m_info = df_m[df_m['السلعة'] == s_name].iloc[0]
-            s_unit = i2.text_input("الوحدة", value=m_info['الوحدة'], key="unit_input_k")
-            s_qte = i3.number_input("الكمية", min_value=1.0, step=1.0, key="qte_input_k")
-            s_price = i4.number_input("الثمن HT", value=float(m_info['ثمن Unit']), key="price_input_k")
+            s_unit = i2.text_input("الوحدة", value=m_info['الوحدة'], key="unit_pro_k")
+            s_qte = i3.number_input("الكمية", min_value=1.0, step=1.0, key="qte_pro_k")
+            
+            # التأكد من اسم عمود الثمن كما في Sheets
+            p_col = 'ثمن الوحدة' if 'ثمن الوحدة' in m_info else 'ثمن Unit'
+            s_price = i4.number_input("الثمن HT", value=float(m_info[p_col]), key="price_pro_k")
 
-            if st.button("➕ إضافة السطر", use_container_width=True):
+            if st.button("➕ إضافة للجدول", use_container_width=True):
                 st.session_state.cart.append({
-                    "Désignation": s_name, 
-                    "Unité": s_unit, 
-                    "Qte": s_qte, 
-                    "P.U HT": s_price, 
-                    "Total HT": s_qte * s_price
+                    "Désignation": s_name, "Unité": s_unit, "Qte": s_qte, "P.U HT": s_price, "Total HT": s_qte * s_price
                 })
                 st.rerun()
 
-        # 4. عرض الجدول والحسابات
+        # 4. الحسابات والعرض
         if st.session_state.cart:
             st.markdown("---")
             st.table(pd.DataFrame(st.session_state.cart))
             
-            # حساب النتائج
-            sum_ht = sum(i['Total HT'] for i in st.session_state.cart)
-            tva_val = sum_ht * 0.20
-            ttc_val = sum_ht + tva_val
+            total_ht = sum(i['Total HT'] for i in st.session_state.cart)
+            tva = total_ht * 0.20
+            ttc = total_ht + tva
+            st.error(f"### TOTAL TTC: {ttc:,.2f} DH")
 
-            st.error(f"### TOTAL TTC: {ttc_val:,.2f} DH")
-
-            # 5. أزرار التحكم والـ PDF بالـ Design المطلوب
+            # 5. زر التحميل باللوغو والستيل المطلوب
             b1, b2, b3 = st.columns(3)
             
-            if b1.button("💾 تسجيل الفاتورة", type="primary", use_container_width=True):
-                # كود الحفظ العادي
-                new_row = pd.DataFrame([[str(len(df_f)+1), datetime.now().strftime("%d/%m/%Y"), d_num, s_client, f"{sum_ht:.2f}", f"{tva_val:.2f}", f"{ttc_val:.2f}"]], columns=df_f.columns)
-                if save_data("Facturations", pd.concat([df_f, new_row], ignore_index=True)):
-                    st.success("✅ تم الحفظ بنجاح!")
-                    st.session_state.cart = []
-                    st.rerun()
-
-            # --- تحميل PDF الاحترافي (بناء التصميم بالألوان والإحداثيات) ---
-            if b2.button("📥 تحميل PDF الاحترافي", use_container_width=True):
+            if b2.button("📥 تحميل PDF باللوغو", use_container_width=True):
                 try:
-                    pdf = FPDF('P', 'mm', 'A4')
+                    pdf = FPDF()
                     pdf.add_page()
-                    # ⚠️ خاص يكون عندك ملف لوغو سميتو 'logo.png' في نفس Dossier ديال App.py
-                    # pdf.image('logo.png', 10, 8, 30) # حيد الهاش (#) إيلا كان اللوغو واجد
+                    
+                    # --- الهيدر الاحترافي (Header) ---
+                    # إضافة اللوغو (تأكد أن logo.png موجود)
+                    try:
+                        pdf.image('logo.png', 10, 8, 45) 
+                    except:
+                        pdf.set_font("Helvetica", 'B', 20)
+                        pdf.set_text_color(0, 128, 128)
+                        pdf.text(10, 20, "STE M-VAC")
 
-                    # 🎨 1. الهيدر الاحترافي (المستطيل الرمادي)
-                    pdf.set_fill_color(220, 220, 220) # رمادي فاتح
-                    pdf.rect(60, 0, 150, 20, 'F')
+                    # الجزء الرمادي العلوي
+                    pdf.set_fill_color(220, 220, 220)
+                    pdf.rect(65, 0, 145, 25, 'F')
                     
-                    # 🎨 سمية الشركة بالأزرق (Teal)
-                    pdf.set_xy(100, 5)
-                    pdf.set_font("Helvetica", 'B', 24)
-                    pdf.set_text_color(0, 128, 128) # Teal Color (0,128,128)
-                    pdf.cell(0, 10, "STE M-VAC", ln=True, align='C')
-                    
-                    # 🎨 معلومات الشركة
-                    pdf.set_font("Helvetica", '', 9)
-                    pdf.set_text_color(100, 100, 100) # رمادي غامق
-                    pdf.cell(0, 5, "FROID CLIMATISATION - DESENFUMAGE - VENTILATION - ISOLATION THERMIQUE", ln=True, align='C')
-                    pdf.ln(10)
-                    
-                    # 📅 التاريخ ورقم الـ Devis (على اليمين بالأحمر)
-                    pdf.set_text_color(0, 0, 0) # رجوع للأسود
-                    pdf.set_xy(140, 30)
-                    pdf.cell(30, 8, f"FES LE: {datetime.now().strftime('%d/%m/%Y')}", ln=True, align='R')
-                    pdf.set_xy(140, 38)
-                    pdf.set_text_color(255, 0, 0) # أحمر
-                    pdf.cell(30, 8, f"Devis N: {d_num}", ln=True, align='R')
-                    
-                    # 👤 الكليان (الأسود)
-                    pdf.set_xy(10, 40)
-                    pdf.set_font("Helvetica", 'B', 14)
+                    pdf.set_font("Helvetica", 'B', 18)
+                    pdf.set_text_color(0, 100, 100) # Teal
+                    pdf.set_xy(70, 5)
+                    pdf.cell(0, 10, "STE M-VAC", ln=True, align='L')
+                    pdf.set_font("Helvetica", '', 8)
+                    pdf.set_xy(70, 13)
+                    pdf.cell(0, 5, "FROID CLIMATISATION - DESENFUMAGE - VENTILATION", ln=True)
+
+                    # --- معلومات الوثيقة (بالأحمر والأسود) ---
                     pdf.set_text_color(0, 0, 0)
-                    pdf.cell(0, 10, f"DEVIS pour le Client: {s_client}", ln=True, align='L')
-                    pdf.ln(10)
+                    pdf.set_xy(140, 30)
+                    pdf.set_font("Helvetica", '', 10)
+                    pdf.cell(60, 7, f"FES LE :  {datetime.now().strftime('%d/%m/%Y')}", ln=True, align='R')
+                    pdf.set_text_color(200, 0, 0) # أحمر
+                    pdf.set_xy(140, 37)
+                    pdf.set_font("Helvetica", 'B', 11)
+                    pdf.cell(60, 7, f"{d_type} N: {d_num}", ln=True, align='R')
+
+                    # معلومات الزبون
+                    pdf.set_text_color(0, 0, 0)
+                    pdf.set_xy(10, 50)
+                    pdf.set_font("Helvetica", 'B', 12)
+                    pdf.cell(0, 10, f"Client : {s_client}", ln=True)
                     
-                    # 🎨 2. الجدول الاحترافي (مسطر ومربع)
+                    # --- الجدول (Table Design) ---
+                    pdf.ln(5)
+                    pdf.set_fill_color(0, 128, 128) # Teal Header
+                    pdf.set_text_color(255, 255, 255) # White Text
                     pdf.set_font("Helvetica", 'B', 10)
-                    # الهيدر ديال الجدول
-                    pdf.cell(100, 10, "DESIGNATION", 1)
-                    pdf.cell(20, 10, "UNITE", 1, 0, 'C')
-                    pdf.cell(15, 10, "QTE", 1, 0, 'C')
-                    pdf.cell(30, 10, "Prix Unitiare", 1, 0, 'C')
-                    pdf.cell(30, 10, "Prix TOTAL", 1, 1, 'C')
+                    pdf.cell(90, 10, "DESIGNATION", 1, 0, 'C', True)
+                    pdf.cell(20, 10, "UNITE", 1, 0, 'C', True)
+                    pdf.cell(15, 10, "QTE", 1, 0, 'C', True)
+                    pdf.cell(30, 10, "P. UNITAIRE", 1, 0, 'C', True)
+                    pdf.cell(35, 10, "P. TOTAL", 1, 1, 'C', True)
                     
-                    # محتوى الجدول
+                    pdf.set_text_color(0, 0, 0)
                     pdf.set_font("Helvetica", '', 10)
                     for i in st.session_state.cart:
-                        pdf.cell(100, 8, i['Désignation'], 1)
+                        pdf.cell(90, 8, i['Désignation'], 1)
                         pdf.cell(20, 8, i['Unité'], 1, 0, 'C')
                         pdf.cell(15, 8, f"{i['Qte']}", 1, 0, 'C')
                         pdf.cell(30, 8, f"{i['P.U HT']:.2f}", 1, 0, 'C')
-                        pdf.cell(30, 8, f"{i['Total HT']:.2f}", 1, 1, 'C')
-                    
-                    # المجاميع
-                    pdf.ln(10)
-                    pdf.set_font("Helvetica", 'B', 12)
-                    pdf.cell(140, 10, "Total HT:", 0, 0, 'R')
-                    pdf.cell(50, 10, f"{sum_ht:.2f} DH", 1, 1, 'C')
-                    pdf.cell(140, 10, "TVA (20%):", 0, 0, 'R')
-                    pdf.cell(50, 10, f"{tva_val:.2f} DH", 1, 1, 'C')
-                    
-                    pdf.set_fill_color(0, 128, 128) # Teal
-                    pdf.set_text_color(255, 255, 255) # أبيض
-                    pdf.cell(140, 10, "TOTAL TTC:", 0, 0, 'R')
-                    pdf.cell(50, 10, f"{ttc_val:.2f} DH", 1, 1, 'C', fill=True)
-                    
-                    # 🎨 3. الفوتر (Footer) بالأبيض والـ Teal
-                    # كنحطوه في آخر الصفحة أوتوماتيكياً
-                    pdf.set_y(-25)
-                    pdf.set_fill_color(0, 128, 128) # Teal
-                    pdf.set_text_color(255, 255, 255) # أبيض
-                    pdf.rect(0, pdf.get_y(), 210, 25, 'F')
-                    pdf.set_font("Helvetica", '', 7)
-                    pdf.set_xy(10, pdf.get_y()+2)
-                    pdf.cell(0, 4, "MARNYSY VENTILATION ET AIR CONDITIONNELL SARL AU - FES, MOROCCO", ln=True, align='C')
-                    pdf.cell(0, 4, "Tel: +212 xxx xxx | RC: xxxxx | ICE: xxxxxxxxxx | IF: xxxxxxxx | CNSS: xxxxxxx", ln=True, align='C')
-                    pdf.cell(0, 4, "Email: contact@mvac.ma | CP: xxxxxxxx", ln=True, align='C')
-                    
-                    # تصدير الملف
-                    pdf_output = pdf.output()
-                    if isinstance(pdf_output, str): pdf_output = pdf_output.encode('latin-1')
-                    b64_pdf = base64.b64encode(pdf_output).decode()
-                    st.markdown(f'<a href="data:application/pdf;base64,{b64_pdf}" download="{d_num}.pdf" style="text-decoration:none;"><button style="width:100%;background-color:green;color:white;padding:10px;border-radius:5px;cursor:pointer;">إضغط هنا للتحميل النهائي 📥</button></a>', unsafe_allow_html=True)
-                
-                except Exception as e:
-                    st.error(f"عطب في تصميم PDF: {e}")
+                        pdf.cell(35, 8, f"{i['Total HT']:.2f}", 1, 1, 'C')
 
-            if b3.button("🔄 إفراغ السلة", use_container_width=True):
-                st.session_state.cart = []
-                st.rerun()
+                    # --- المجاميع (Totals) ---
+                    pdf.ln(5)
+                    pdf.set_font("Helvetica", 'B', 10)
+                    pdf.cell(155, 8, "TOTAL H.T", 1, 0, 'R')
+                    pdf.cell(35, 8, f"{total_ht:,.2f}", 1, 1, 'C')
+                    pdf.cell(155, 8, "TVA 20%", 1, 0, 'R')
+                    pdf.cell(35, 8, f"{tva:,.2f}", 1, 1, 'C')
+                    pdf.set_fill_color(240, 240, 240)
+                    pdf.cell(155, 10, "TOTAL TTC", 1, 0, 'R', True)
+                    pdf.cell(35, 10, f"{ttc:,.2f} DH", 1, 1, 'C', True)
+
+                    # --- الفوتر (Footer) الأخضر ---
+                    pdf.set_y(-25)
+                    pdf.set_fill_color(0, 100, 100) # Teal
+                    pdf.rect(0, pdf.get_y(), 210, 25, 'F')
+                    pdf.set_text_color(255, 255, 255)
+                    pdf.set_font("Helvetica", '', 7)
+                    pdf.set_xy(10, pdf.get_y()+5)
+                    pdf.cell(0, 4, "MARNYSY VENTILATION ET AIR CONDITIONNELL SARL AU - FES", ln=True, align='C')
+                    pdf.cell(0, 4, "RC: 77421 | ICE: 003337844000039 | IF: 53885224 | CNSS: 4987116", ln=True, align='C')
+
+                    # تصدير الملف
+                    pdf_bytes = pdf.output()
+                    if isinstance(pdf_bytes, str): pdf_bytes = pdf_bytes.encode('latin-1')
+                    b64 = base64.b64encode(pdf_bytes).decode()
+                    st.markdown(f'<a href="data:application/pdf;base64,{b64}" download="{d_num}.pdf" style="text-decoration:none;"><button style="width:100%;background-color:#008080;color:white;padding:12px;border-radius:8px;border:none;cursor:pointer;font-weight:bold;">📥 تحميل الوثيقة النهائية (PDF)</button></a>', unsafe_allow_html=True)
+                except Exception as e:
+                    st.error(f"Error PDF: {e}")
+
+            if b1.button("💾 تسجيل في السجل", type="primary", use_container_width=True):
+                # كود الحفظ في Sheets
+                new_f = pd.DataFrame([[str(len(df_f)+1), datetime.now().strftime("%d/%m/%Y"), d_num, s_client, f"{total_ht:.2f}", f"{tva:.2f}", f"{ttc:.2f}"]], columns=df_f.columns)
+                if save_data("Facturations", pd.concat([df_f, new_f], ignore_index=True)):
+                    st.success("✅ تم الحفظ!")
+                    st.session_state.cart = []
+                    st.rerun()

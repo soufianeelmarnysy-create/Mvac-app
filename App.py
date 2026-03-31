@@ -170,7 +170,7 @@ elif page == "📦 إدارة السلعة":
 elif page == "📄 Devis / Facture":
     st.header("📄 Gestion des Factures & Devis PRO")
     
-    # 1. تحميل البيانات
+    # 1. تحميل البيانات من الشيتات الحقيقية
     df_c = load_data("Customers")
     df_m = load_data("Materiels")
     df_f = load_data("Facturations")
@@ -181,46 +181,40 @@ elif page == "📄 Devis / Facture":
     # 2. إعدادات الوثيقة
     with st.container(border=True):
         c1, c2, c3 = st.columns([1, 2, 1])
-        d_type = c1.selectbox("Type", ["DEVIS", "FACTURE"], key="doc_v_final")
+        d_type = c1.selectbox("Type", ["DEVIS", "FACTURE"], key="mvac_type")
         
-        # جلب الكليان مع تنظيف الفراغات
-        c_list = df_c.iloc[:, 1].dropna().str.strip().tolist() if not df_c.empty else ["Client Standard"]
-        s_client = c2.selectbox("Client", c_list, key="client_v_final")
+        # استخراج الكليان من عمود "الاسم/الشركة"
+        c_list = df_c['الاسم/الشركة'].dropna().unique().tolist() if not df_c.empty else ["Client Standard"]
+        s_client = c2.selectbox("Client", c_list, key="mvac_client")
         d_num = c3.text_input("N° Doc", value=f"{d_type[0]}{datetime.now().strftime('%y%m%d%H%M')}")
 
-    # 3. إضافة السلع (الحل النهائي لجلب الأثمنة والوحدات)
+    # 3. إضافة السلع (ربط مباشر مع شيت Materiels)
     with st.container(border=True):
         st.subheader("📦 Ajouter des articles")
         i1, i2, i3, i4 = st.columns([3, 1, 1, 1])
         
-        # تنظيف قائمة السلع من أي فراغات خفية في Sheets
-        if not df_m.empty:
-            df_m_clean = df_m.copy()
-            # نفترض السلعة في العمود 2، الوحدة في 3، والثمن في 4
-            df_m_clean.iloc[:, 1] = df_m_clean.iloc[:, 1].astype(str).str.strip()
-            m_list = df_m_clean.iloc[:, 1].tolist()
-        else:
-            m_list = []
-
-        s_name = i1.selectbox("Article", [""] + m_list, key="art_sel_final")
+        # استخراج السلع من عمود "السلعة"
+        m_list = df_m['السلعة'].dropna().unique().tolist() if not df_m.empty else []
+        s_name = i1.selectbox("Article", [""] + m_list, key="mvac_art")
         
         u_v, p_v = "", 0.0
         if s_name != "":
-            # البحث عن السلعة المختارة مع تنظيف المدخلات
-            match = df_m_clean[df_m_clean.iloc[:, 1] == s_name]
-            if not match.empty:
-                row = match.iloc[0]
-                u_v = str(row.iloc[2]).strip() if len(row) > 2 else "" # الوحدة
-                try:
-                    # تحويل الثمن لرقم مع معالجة الفاصلة
-                    raw_p = str(row.iloc[3]).replace(',', '.').strip()
-                    p_v = float(raw_p)
-                except:
-                    p_v = 0.0
+            # البحث عن بيانات السلعة المختارة
+            m_info = df_m[df_m['السلعة'] == s_name].iloc[0]
+            
+            # جلب الوحدة من عمود "الوحدة"
+            u_v = str(m_info.get('الوحدة', ''))
+            
+            # جلب الثمن من عمود "ثمن الوحدة" وتحويله لرقم
+            try:
+                raw_p = str(m_info.get('ثمن الوحدة', 0)).replace(',', '.').strip()
+                p_v = float(raw_p)
+            except:
+                p_v = 0.0
 
-        s_unit = i2.text_input("Unité", value=u_v, key="u_final")
-        s_qte = i3.number_input("Qté", min_value=0.1, value=1.0, key="q_final")
-        s_price = i4.number_input("Prix HT", value=p_v, key="p_final")
+        s_unit = i2.text_input("Unité", value=u_v, key="mvac_u")
+        s_qte = i3.number_input("Qté", min_value=0.1, value=1.0, key="mvac_q")
+        s_price = i4.number_input("Prix HT", value=p_v, key="mvac_p")
 
         if st.button("➕ Ajouter à la liste", use_container_width=True):
             if s_name != "":
@@ -233,18 +227,17 @@ elif page == "📄 Devis / Facture":
                 })
                 st.rerun()
 
-    # 4. عرض الجدول وحساب الطوطال
+    # 4. عرض الجدول والحسابات الإجمالية
     if st.session_state.cart:
         st.markdown("---")
         for idx, item in enumerate(st.session_state.cart):
-            col1, col2 = st.columns([6, 1])
-            # عرض الحساب (Total) بشكل صحيح في الواجهة
-            col1.info(f"**{item['Désignation']}** | {item['Qte']} {item['Unité']} x {item['PU_HT']:.2f} = {item['Total_HT']:.2f} DH")
-            if col2.button("🗑️", key=f"del_{idx}"):
+            col_l1, col_l2 = st.columns([6, 1])
+            col_l1.info(f"**{item['Désignation']}** | {item['Qte']} {item['Unité']} x {item['PU_HT']:.2f} = {item['Total_HT']:.2f} DH")
+            if col_l2.button("🗑️", key=f"del_{idx}"):
                 st.session_state.cart.pop(idx)
                 st.rerun()
 
-        # 5. ملخص الحسابات
+        # الحسابات
         ht_brut = sum(i['Total_HT'] for i in st.session_state.cart)
         remise_pct = st.number_input("Remise (%)", min_value=0, max_value=100, value=0)
         remise_val = ht_brut * (remise_pct / 100)
@@ -252,33 +245,44 @@ elif page == "📄 Devis / Facture":
         tva_val = ht_net * 0.20
         ttc_total = ht_net + tva_val
 
+        # عرض النتائج في Metrics
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Total HT", f"{ht_brut:,.2f} DH")
-        m2.metric("Remise", f"-{remise_val:,.2f} DH")
-        m3.metric("TVA (20%)", f"{tva_val:,.2f} DH")
-        m4.metric("TOTAL TTC", f"{ttc_total:,.2f} DH")
+        m1.metric("Total HT", f"{ht_brut:,.2f}")
+        m2.metric("Remise", f"-{remise_val:,.2f}")
+        m3.metric("TVA (20%)", f"{tva_val:,.2f}")
+        m4.metric("TOTAL TTC", f"{ttc_total:,.2f}")
 
-        # 6. حل مشكلة PDF (bytearray error)
+        # 5. حل مشكلة PDF وحفظ البيانات
         b1, b2 = st.columns(2)
         
         if b1.button("💾 Enregistrer", type="primary", use_container_width=True):
-            # الكود ديال الحفظ في Sheets
-            st.success("✅ Enregistré !")
+            summary = ", ".join([f"{i['Désignation']} (x{i['Qte']})" for i in st.session_state.cart])
+            # الأعمدة تطابق شيت Facturations عندك (ID, Date, Num_Facture, Client, HT, TVA, TTC, Type, Articles)
+            new_data = [
+                str(len(df_f)+1), datetime.now().strftime("%d/%m/%Y"), d_num, s_client,
+                f"{ht_net:.2f}", f"{tva_val:.2f}", f"{ttc_total:.2f}", d_type, summary
+            ]
+            df_f.loc[len(df_f)] = new_data
+            if save_data("Facturations", df_f):
+                st.success("✅ Enregistré dans Google Sheets")
 
         if b2.button("📥 Télécharger PDF", use_container_width=True):
             try:
                 pdf = FPDF()
                 pdf.add_page()
-                pdf.set_font("Arial", 'B', 14)
-                pdf.cell(0, 10, f"FACTURE N°: {d_num}", ln=1, align='C')
+                pdf.set_font("Arial", 'B', 16)
+                pdf.cell(0, 10, f"MVAC SYSTEM - {d_type}", ln=1, align='C')
                 
-                # تصحيح الخطأ الشهير bytearray has no attribute encode
+                # حل مشكلة AttributeError: bytearray
                 pdf_output = pdf.output(dest='S')
-                # تحويل الناتج لـ bytes حقيقية قبل التشفير
                 pdf_bytes = bytes(pdf_output) if isinstance(pdf_output, (bytearray, bytes)) else pdf_output.encode('latin-1')
                 
                 b64 = base64.b64encode(pdf_bytes).decode()
-                href = f'<a href="data:application/pdf;base64,{b64}" download="{d_num}.pdf" style="text-decoration:none;"><button style="width:100%; background-color:#005050; color:white; padding:10px; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">📥 Télécharger</button></a>'
+                href = f'<a href="data:application/pdf;base64,{b64}" download="{d_num}.pdf" style="text-decoration:none;"><button style="background-color:#005050; color:white; padding:10px; border:none; border-radius:5px; cursor:pointer; width:100%;">📥 Télécharger le PDF</button></a>'
                 st.markdown(href, unsafe_allow_html=True)
             except Exception as e:
-                st.error(f"Erreur: {e}")
+                st.error(f"Erreur PDF: {e}")
+
+        if st.button("🔄 Nouveau Document"):
+            st.session_state.cart = []; st.rerun()
+

@@ -170,45 +170,39 @@ elif page == "📦 إدارة السلعة":
 elif page == "📄 Devis / Facture":
     st.header("📄 Gestion des Factures & Devis PRO")
     
-    # 1. جلب البيانات من Google Sheets
+    # 1. جلب البيانات
     df_c = load_data("Customers")
     df_m = load_data("Materiels")
     df_f = load_data("Facturations")
 
-    # تنظيف البيانات لتفادي الأخطاء
     if 'cart' not in st.session_state:
         st.session_state.cart = []
 
-    # 2. إعدادات الوثيقة (النوع، الزبون، الرقم)
+    # 2. معلومات الوثيقة
     with st.container(border=True):
         c1, c2, c3 = st.columns([1, 2, 1])
         d_type = c1.selectbox("Type", ["DEVIS", "FACTURE"], key="type_mvac")
-        
         c_list = df_c['الاسم/الشركة'].tolist() if not df_c.empty else ["Client Standard"]
         s_client = c2.selectbox("Client", c_list, key="client_mvac")
-        
         d_num = c3.text_input("N° Doc", value=f"{d_type[:1]}{datetime.now().strftime('%y%m%d%H%M')}")
 
-    # 3. إضافة السلع (إدخال آلي للبيانات)
+    # 3. إضافة السلع (Auto-fill)
     with st.container(border=True):
-        st.subheader("📦 Ajouter des articles")
         i1, i2, i3, i4 = st.columns([3, 1, 1, 1])
-        
         m_list = df_m['السلعة'].tolist() if not df_m.empty else []
         s_name = i1.selectbox("Article", m_list, key="art_mvac")
         
-        # جلب الوحدة والثمن أوتوماتيكياً
         if not df_m.empty and s_name:
             m_info = df_m[df_m['السلعة'] == s_name].iloc[0]
-            unit_val = str(m_info.get('الوحدة', ''))
-            try: price_val = float(m_info.get('ثمن الوحدة', 0))
-            except: price_val = 0.0
+            u_v = str(m_info.get('الوحدة', ''))
+            try: p_v = float(m_info.get('ثمن الوحدة', 0))
+            except: p_v = 0.0
         else:
-            unit_val, price_val = "", 0.0
+            u_v, p_v = "", 0.0
 
-        s_unit = i2.text_input("Unité", value=unit_val, key="unit_mvac")
+        s_unit = i2.text_input("Unité", value=u_v, key="unit_mvac")
         s_qte = i3.number_input("Qté", min_value=0.1, value=1.0, key="qte_mvac")
-        s_price = i4.number_input("Prix HT", value=price_val, key="price_mvac")
+        s_price = i4.number_input("Prix HT", value=p_v, key="price_mvac")
 
         if st.button("➕ Ajouter l'article", use_container_width=True):
             st.session_state.cart.append({
@@ -217,66 +211,54 @@ elif page == "📄 Devis / Facture":
             })
             st.rerun()
 
-    # 4. جدول السلع والحسابات
+    # 4. الحسابات والـ PDF
     if st.session_state.cart:
-        st.markdown("### 🛒 Aperçu")
         st.table(pd.DataFrame(st.session_state.cart))
+        ht = sum(i['Total_HT'] for i in st.session_state.cart)
+        tva = ht * 0.20
+        ttc = ht + tva
         
-        ht_brut = sum(item['Total_HT'] for item in st.session_state.cart)
-        tva = ht_brut * 0.20
-        ttc = ht_brut + tva
-        
-        # تحويل المبلغ لحروف (لابد من pip install num2words)
         try:
-            ttc_letters = num2words(ttc, lang='fr').upper() + " DIRHAMS"
+            ttc_l = num2words(ttc, lang='fr').upper() + " DIRHAMS"
         except:
-            ttc_letters = "---"
+            ttc_l = "---"
 
-        st.info(f"**Arrêter le présent document à la somme de :** {ttc_letters}")
+        st.info(f"**Somme :** {ttc_l}")
 
-        # 5. أزرار العمليات (حفظ وتنزيل)
-        b1, b2, b3 = st.columns(3)
-
+        b1, b2 = st.columns(2)
         if b1.button("💾 Enregistrer", type="primary", use_container_width=True):
-            new_data = pd.DataFrame([[
-                str(len(df_f)+1), datetime.now().strftime("%d/%m/%Y"), 
-                d_num, s_client, f"{ht_brut:.2f}", f"{tva:.2f}", f"{ttc:.2f}"
-            ]], columns=["ID", "Date", "Num_Facture", "Client", "HT", "TVA", "TTC"])
-            if save_data("Facturations", pd.concat([df_f, new_data])):
-                st.success("✅ Enregistré !")
+            new_r = pd.DataFrame([[str(len(df_f)+1), datetime.now().strftime("%d/%m/%Y"), d_num, s_client, f"{ht:.2f}", f"{tva:.2f}", f"{ttc:.2f}"]], 
+                                columns=["ID", "Date", "Num_Facture", "Client", "HT", "TVA", "TTC"])
+            save_data("Facturations", pd.concat([df_f, new_r]))
+            st.success("✅ Enregistré !")
 
         if b2.button("📥 Télécharger PDF", use_container_width=True):
             pdf = FPDF()
             pdf.add_page()
             
-            # Header (Logo M-VAC)
+            # Header
             try: pdf.image("logo.png", 10, 8, 45)
             except: pdf.set_font("Arial", 'B', 16); pdf.cell(0, 10, "M-VAC SYSTEM", ln=1)
             
             pdf.set_font("Arial", 'B', 14)
             pdf.cell(0, 10, d_type, ln=1, align='R')
             pdf.set_font("Arial", '', 10)
-            pdf.cell(0, 5, f"N°: {d_num}", ln=1, align='R')
-            pdf.cell(0, 5, f"Date: {datetime.now().strftime('%d/%m/%Y')}", ln=1, align='R')
+            pdf.cell(0, 5, f"N°: {d_num} | Date: {datetime.now().strftime('%d/%m/%Y')}", ln=1, align='R')
             
-            pdf.ln(20)
+            pdf.ln(15)
             pdf.set_fill_color(240, 240, 240)
-            pdf.set_font("Arial", 'B', 11)
             pdf.cell(0, 10, f" CLIENT: {s_client}", 1, 1, 'L', True)
             pdf.ln(5)
 
-            # Table Header
-            pdf.set_fill_color(0, 65, 65)
-            pdf.set_text_color(255, 255, 255)
+            # Table
+            pdf.set_fill_color(0, 60, 60); pdf.set_text_color(255, 255, 255)
             pdf.cell(85, 10, " DESIGNATION", 1, 0, 'L', True)
             pdf.cell(20, 10, "UNITE", 1, 0, 'C', True)
             pdf.cell(15, 10, "QTE", 1, 0, 'C', True)
             pdf.cell(30, 10, "P.U HT", 1, 0, 'C', True)
             pdf.cell(40, 10, "TOTAL HT", 1, 1, 'C', True)
 
-            # Table Content
-            pdf.set_text_color(0, 0, 0)
-            pdf.set_font("Arial", '', 9)
+            pdf.set_text_color(0, 0, 0); pdf.set_font("Arial", '', 9)
             for item in st.session_state.cart:
                 pdf.cell(85, 8, f" {item['Désignation']}", 1)
                 pdf.cell(20, 8, item['Unité'], 1, 0, 'C')
@@ -284,31 +266,24 @@ elif page == "📄 Devis / Facture":
                 pdf.cell(30, 8, f"{item['PU_HT']:.2f}", 1, 0, 'R')
                 pdf.cell(40, 8, f"{item['Total_HT']:.2f}", 1, 1, 'R')
 
-            # Totals
-            pdf.ln(5)
-            pdf.cell(150, 8, "TOTAL HT :", 0, 0, 'R')
-            pdf.cell(40, 8, f"{ht_brut:.2f} DH", 1, 1, 'C')
-            pdf.cell(150, 8, "TOTAL TVA (20%) :", 0, 0, 'R')
-            pdf.cell(40, 8, f"{tva:.2f} DH", 1, 1, 'C')
-            pdf.set_font("Arial", 'B', 11)
-            pdf.cell(150, 10, "TOTAL TTC :", 0, 0, 'R')
-            pdf.set_fill_color(235, 235, 235)
-            pdf.cell(40, 10, f"{ttc:.2f} DH", 1, 1, 'C', True)
+            # Totals & Alphabet
+            pdf.ln(5); pdf.set_font("Arial", 'B', 10)
+            pdf.cell(150, 8, "TOTAL TTC :", 0, 0, 'R')
+            pdf.cell(40, 8, f"{ttc:.2f} DH", 1, 1, 'C', True)
+            
+            pdf.ln(10); pdf.multi_cell(0, 8, f"ARRETER A LA SOMME DE : {ttc_l}")
 
-            pdf.ln(10)
-            pdf.set_font("Arial", 'B', 9)
-            pdf.multi_cell(0, 8, f"ARRETER LE PRESENT {d_type} A LA SOMME DE : {ttc_letters}")
+            # Footer
+            pdf.set_y(-35); pdf.set_font("Arial", 'I', 7)
+            footer_mvac = "MARNYSY VENTILATION ET AIR CONDITIONNELL SARL AU\nSiage: N 196 LOTISSEMENT LAYMOUNE BEN SOUDA FES\nRC: 77421 - IF: 53885224 - ICE: 003337844000039"
+            pdf.multi_cell(0, 4, footer_mvac, 0, 'C')
 
-            # Footer القانوني
-            pdf.set_y(-35)
-            pdf.set_font("Arial", 'I', 7)
-            footer = "MARNYSY VENTILATION ET AIR CONDITIONNELL SARL AU\nSiage: N 196 LOTISSEMENT LAYMOUNE BEN SOUDA FES\nTEL: 06 63 45 18 55 - 06 61 57 43 81 | Email: mvac.sarl@gmail.com\nRC: 77421 - PT: 13441130 - IF: 53885224 - CNSS: 4987116 - ICE: 003337844000039"
-            pdf.multi_cell(0, 4, footer, 0, 'C')
+            # التصدير (هاد السطور هوما اللي خاصهم يكونوا داخلين فـ الـ if)
+            pdf_out = pdf.output(dest='S').encode('latin-1', errors='replace')
+            b64_pdf = base64.b64encode(pdf_out).decode()
+            href = f'<a href="data:application/pdf;base64,{b64_pdf}" download="{d_num}.pdf" style="text-decoration:none;"><button style="width:100%; background-color:#005050; color:white; padding:10px; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">📥 Télécharger PDF</button></a>'
+            st.markdown(href, unsafe_allow_html=True)
 
-            pdf_bytes = pdf.output(dest='S').encode('latin-1', errors='replace')
-            b64 = base64.b64encode(pdf_bytes).decode()
-            st.markdown(f'<a href="data:application/pdf;base64,{b64}" download="{d_num}.pdf" style="text-decoration:none;"><button style="width:100%; background-color:#004d4d; color:white; padding:10px; border:none; border-radius:5px; cursor:pointer;">📥 Télécharger le document</button></a>', unsafe_allow_html=True)
+        if st.button("🔄 Nouveau"):
+            st.session_state.cart = []; st.rerun()
 
-        if b3.button("🔄 Nouveau"):
-            st.session_state.cart = []
-            st.rerun()

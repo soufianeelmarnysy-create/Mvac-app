@@ -167,84 +167,101 @@ elif page == "📦 إدارة السلعة":
 # =========================================================
 # 📄 5. صفحة الفاتورة (Facturation)
 # ========================================================================================================================================================================
-elif page == "📄 Devis / Facture":
-    st.header("📄 Gestion des Factures & Devis PRO")
+# استيراد مكتبة BytesIO ضروري للفيكس ديال PDF
+from io import BytesIO
+
+# =========================================================
+# 📄 5. صفحة الفاتورة (نسخة الإصلاح النهائي)
+# =========================================================
+else:
+    st.title("📄 Devis / Facture")
     
-    # 1. تحميل البيانات
     df_c = load_data("Customers")
     df_m = load_data("Materiels")
     df_f = load_data("Facturations")
 
-    if 'cart' not in st.session_state:
+    if 'cart' not in st.session_state: 
         st.session_state.cart = []
 
-    # 2. إعدادات الوثيقة (Client & Type)
-    with st.container(border=True):
-        c1, c2, c3 = st.columns([1, 2, 1])
-        d_type = c1.selectbox("Type", ["DEVIS", "FACTURE"], key="type_v3")
-        
-        # كنجيبو الكليان من العمود رقم 2 (الاسم/الشركة)
-        c_list = df_c.iloc[:, 2].dropna().unique().tolist() if not df_c.empty else ["Client Standard"]
-        s_client = c2.selectbox("Client", c_list, key="client_v3")
-        d_num = c3.text_input("N° Doc", value=f"{d_type[0]}{datetime.now().strftime('%y%m%d%H%M')}")
+    # 1. إعدادات الوثيقة
+    with st.sidebar: # درنا هادو فـ Sidebar باش نوفروا المساحة للجدول
+        st.header("⚙️ إعدادات")
+        d_type = st.selectbox("النوع", ["DEVIS", "FACTURE"], key="dt")
+        s_client = st.selectbox("الزبون", df_c['الاسم/الشركة'].tolist() if not df_c.empty else ["خاوي"], key="cl")
+        d_num = st.text_input("رقم الوثيقة", value=f"{d_type[:1]}{datetime.now().strftime('%y%m%d%H%M')}")
+        remise_pct = st.selectbox("العمولة (%)", [0, 5, 10, 15, 20, 25, 30, 50], key="rm")
 
-    # 3. إضافة السلع (استعمال رقم العمود لتجنب مشاكل الأسماء)
+    # 2. إضافة السلعة
     with st.container(border=True):
-        st.subheader("📦 Ajouter des articles")
         i1, i2, i3, i4 = st.columns([3, 1, 1, 1])
+        s_name = i1.selectbox("اختار السلعة", df_m['السلعة'].tolist() if not df_m.empty else ["خاوي"])
         
-        # السلعة في العمود رقم 2 (Index 2)
-        m_list = df_m.iloc[:, 2].dropna().unique().tolist() if not df_m.empty else []
-        s_name = i1.selectbox("Article", [""] + m_list, key="art_v3")
-        
-        u_v, p_v = "", 0.0
-        if s_name != "" and not df_m.empty:
-            # كنقلبو على السطر اللي فيه السلعة
-            row = df_m[df_m.iloc[:, 2] == s_name].iloc[0]
-            u_v = str(row.iloc[3]) if len(row) > 3 else ""  # الوحدة في العمود 3
-            try:
-                # الثمن في العمود 5 (Index 5)
-                val_p = str(row.iloc[5]).replace(',', '.').strip()
-                p_v = float(val_p)
-            except:
-                p_v = 0.0
+        if not df_m.empty:
+            m_info = df_m[df_m['السلعة'] == s_name].iloc[0]
+            s_unit = i2.text_input("الوحدة", value=m_info['الوحدة'])
+            s_qte = i3.number_input("الكمية", min_value=0.1, value=1.0, step=0.5)
+            s_price = i4.number_input("الثمن HT", value=float(m_info['ثمن الوحدة']))
 
-        s_unit = i2.text_input("Unité", value=u_v)
-        s_qte = i3.number_input("Qté", min_value=0.1, value=1.0)
-        s_price = i4.number_input("Prix HT", value=p_v)
-
-        if st.button("➕ Ajouter à la liste", use_container_width=True):
-            if s_name != "":
+            if st.button("➕ إضافة السطر", use_container_width=True):
                 st.session_state.cart.append({
-                    "Désignation": s_name, "Unité": s_unit,
-                    "Qte": s_qte, "PU_HT": s_price, "Total_HT": s_qte * s_price
+                    "Désignation": s_name, "Unité": s_unit, "Qte": s_qte, "P.U": s_price, "Total": s_qte * s_price
                 })
                 st.rerun()
 
-    # 4. عرض الجدول وحساب المجموع (هنا كيرجعو الأثمنة والأزرار)
+    # 3. عرض الجدول والحسابات (بشكل يمنع الاختفاء)
     if st.session_state.cart:
-        for idx, item in enumerate(st.session_state.cart):
-            col_a, col_b = st.columns([6, 1])
-            col_a.info(f"**{item['Désignation']}** | {item['Qte']} {item['Unité']} x {item['PU_HT']:.2f} = {item['Total_HT']:.2f} DH")
-            if col_b.button("🗑️", key=f"del_{idx}"):
-                st.session_state.cart.pop(idx)
+        # عرض الجدول في مساحة محدودة (Scrollable)
+        st.markdown("### 🛒 السلع المضافة")
+        st.dataframe(pd.DataFrame(st.session_state.cart), use_container_width=True, height=250)
+
+        # حساب النتائج
+        raw_ht = sum(item['Total'] for item in st.session_state.cart)
+        val_remise = raw_ht * (remise_pct / 100)
+        net_ht = raw_ht - val_remise
+        val_tva = net_ht * 0.20
+        total_ttc = net_ht + val_tva
+
+        # عرض الحسابات بشكل أفقي باش ما يهبطوش لتحت بزاف
+        c_res1, c_res2, c_res3 = st.columns(3)
+        c_res1.metric("Total HT Net", f"{net_ht:,.2f} DH")
+        c_res2.metric("TVA (20%)", f"{val_tva:,.2f} DH")
+        c_res3.error(f"**TOTAL TTC: {total_ttc:,.2f} DH**")
+
+        # 4. أزرار التحكم والـ PDF (الإصلاح الجديد)
+        st.markdown("---")
+        b1, b2, b3 = st.columns(3)
+
+        if b1.button("💾 حفظ في Sheet", type="primary", use_container_width=True):
+            new_row = pd.DataFrame([[str(len(df_f)+1), datetime.now().strftime("%d/%m/%Y"), d_num, s_client, f"{net_ht:.2f}", f"{val_tva:.2f}", f"{total_ttc:.2f}"]], columns=df_f.columns)
+            if save_data("Facturations", pd.concat([df_f, new_row], ignore_index=True)):
+                st.success("✅ تم الحفظ!")
+                st.session_state.cart = []
                 st.rerun()
 
-        # الحسابات الإجمالية
-        ht_brut = sum(i['Total_HT'] for i in st.session_state.cart)
-        remise_pct = st.number_input("Remise (%)", 0, 100, 0)
-        ht_net = ht_brut * (1 - remise_pct/100)
-        tva = ht_net * 0.20
-        ttc = ht_net + tva
+        if b2.button("📥 تحميل PDF", use_container_width=True):
+            try:
+                pdf = FPDF()
+                pdf.add_page()
+                pdf.set_font("Arial", 'B', 16)
+                pdf.cell(0, 10, f"MVAC - {d_type} {d_num}", ln=True, align='C')
+                pdf.set_font("Arial", '', 12)
+                pdf.ln(10)
+                pdf.cell(0, 10, f"Client: {s_client} | Date: {datetime.now().strftime('%d/%m/%Y')}", ln=True)
+                pdf.ln(5)
+                for item in st.session_state.cart:
+                    pdf.cell(0, 8, f"- {item['Désignation']} | {item['Qte']} {item['Unité']} | {item['Total']:.2f} DH", ln=True)
+                pdf.ln(10)
+                pdf.set_font("Arial", 'B', 14)
+                pdf.cell(0, 10, f"TOTAL TTC: {total_ttc:,.2f} DH", ln=True, align='R')
+                
+                # الطريقة الصحيحة لإخراج الـ PDF في Streamlit
+                pdf_output = pdf.output(dest='S').encode('latin-1')
+                b64 = base64.b64encode(pdf_output).decode()
+                href = f'<a href="data:application/pdf;base64,{b64}" download="{d_num}.pdf" style="text-decoration:none;"><div style="background-color:green;color:white;padding:10px;text-align:center;border-radius:5px;">إضغط هنا لتحميل الفاتورة PDF 📥</div></a>'
+                st.markdown(href, unsafe_allow_html=True)
+            except Exception as e:
+                st.error(f"Error PDF: {e}")
 
-        st.markdown(f"### TOTAL TTC: {ttc:,.2f} DH")
-
-        # 5. الأزرار (Enregistrer & PDF)
-        b1, b2 = st.columns(2)
-        with b1:
-            if st.button("💾 Enregistrer dans Sheets", type="primary", use_container_width=True):
-                # كود الحفظ...
-                st.success("✅ Enregistré !")
-        with b2:
-            # كود PDF المصحح...
-            st.button("📥 Télécharger PDF Officiel", use_container_width=True)
+        if b3.button("🔄 إفراغ", use_container_width=True):
+            st.session_state.cart = []
+            st.rerun()

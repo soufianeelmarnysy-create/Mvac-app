@@ -167,15 +167,13 @@ elif page == "📦 إدارة السلعة":
 # =========================================================
 # 📄 5. صفحة الفاتورة (Facturation)
 # ========================================================================================================================================================================
-# استيراد مكتبة BytesIO ضروري للفيكس ديال PDF
-from io import BytesIO
-
 # =========================================================
-# 📄 5. صفحة الفاتورة (نسخة الإصلاح النهائي)
+# 📄 النسخة النهائية والمصححة لصفحة Devis / Facture
 # =========================================================
-else:
-    st.title("📄 Devis / Facture")
+elif page == "📄 Devis / Facture":  # تأكد أن "elif" غادية مع الترتيب ديال الصفحات عندك
+    st.title("📄 إدارة الفواتير و العروض")
     
+    # 1. جلب البيانات
     df_c = load_data("Customers")
     df_m = load_data("Materiels")
     df_f = load_data("Facturations")
@@ -183,24 +181,26 @@ else:
     if 'cart' not in st.session_state: 
         st.session_state.cart = []
 
-    # 1. إعدادات الوثيقة
-    with st.sidebar: # درنا هادو فـ Sidebar باش نوفروا المساحة للجدول
-        st.header("⚙️ إعدادات")
-        d_type = st.selectbox("النوع", ["DEVIS", "FACTURE"], key="dt")
-        s_client = st.selectbox("الزبون", df_c['الاسم/الشركة'].tolist() if not df_c.empty else ["خاوي"], key="cl")
-        d_num = st.text_input("رقم الوثيقة", value=f"{d_type[:1]}{datetime.now().strftime('%y%m%d%H%M')}")
-        remise_pct = st.selectbox("العمولة (%)", [0, 5, 10, 15, 20, 25, 30, 50], key="rm")
+    if df_c.empty or df_m.empty:
+        st.error("⚠️ خاصك تعمر الكليان والسلعة هما اللولين!")
+    else:
+        # 2. إعدادات الوثيقة (النوع والكليان)
+        with st.container(border=True):
+            c1, c2, c3 = st.columns([1, 2, 1])
+            d_type = c1.selectbox("نوع الوثيقة", ["DEVIS", "FACTURE"], key="doc_type_key")
+            s_client = c2.selectbox("اختار الزبون", df_c['الاسم/الشركة'].tolist(), key="client_key")
+            d_num = c3.text_input("رقم الوثيقة", value=f"{d_type[:1]}{datetime.now().strftime('%y%m%d%H%M')}")
 
-    # 2. إضافة السلعة
-    with st.container(border=True):
-        i1, i2, i3, i4 = st.columns([3, 1, 1, 1])
-        s_name = i1.selectbox("اختار السلعة", df_m['السلعة'].tolist() if not df_m.empty else ["خاوي"])
-        
-        if not df_m.empty:
+        # 3. إضافة السلعة
+        with st.container(border=True):
+            st.subheader("📦 إضافة السلع")
+            i1, i2, i3, i4 = st.columns([3, 1, 1, 1])
+            s_name = i1.selectbox("السلعة", df_m['السلعة'].tolist(), key="item_select_key")
+            
             m_info = df_m[df_m['السلعة'] == s_name].iloc[0]
-            s_unit = i2.text_input("الوحدة", value=m_info['الوحدة'])
-            s_qte = i3.number_input("الكمية", min_value=0.1, value=1.0, step=0.5)
-            s_price = i4.number_input("الثمن HT", value=float(m_info['ثمن الوحدة']))
+            s_unit = i2.text_input("الوحدة", value=m_info['الوحدة'], key="unit_key")
+            s_qte = i3.number_input("الكمية", min_value=0.1, value=1.0, step=0.5, key="qte_key")
+            s_price = i4.number_input("الثمن HT", value=float(m_info['ثمن الوحدة']), key="price_key")
 
             if st.button("➕ إضافة السطر", use_container_width=True):
                 st.session_state.cart.append({
@@ -208,60 +208,60 @@ else:
                 })
                 st.rerun()
 
-    # 3. عرض الجدول والحسابات (بشكل يمنع الاختفاء)
-    if st.session_state.cart:
-        # عرض الجدول في مساحة محدودة (Scrollable)
-        st.markdown("### 🛒 السلع المضافة")
-        st.dataframe(pd.DataFrame(st.session_state.cart), use_container_width=True, height=250)
+        # 4. عرض الجدول والحسابات (بشكل منظم)
+        if st.session_state.cart:
+            st.markdown("---")
+            # عرض السلع في جدول منظم
+            st.dataframe(pd.DataFrame(st.session_state.cart), use_container_width=True)
 
-        # حساب النتائج
-        raw_ht = sum(item['Total'] for item in st.session_state.cart)
-        val_remise = raw_ht * (remise_pct / 100)
-        net_ht = raw_ht - val_remise
-        val_tva = net_ht * 0.20
-        total_ttc = net_ht + val_tva
+            col_left, col_right = st.columns([2, 1])
+            
+            with col_right:
+                remise_pct = st.selectbox("العمولة (%)", [0, 5, 10, 15, 20, 25, 30, 50], key="remise_key")
+                
+                raw_ht = sum(item['Total'] for item in st.session_state.cart)
+                val_remise = raw_ht * (remise_pct / 100)
+                net_ht = raw_ht - val_remise
+                val_tva = net_ht * 0.20
+                total_ttc = net_ht + val_tva
 
-        # عرض الحسابات بشكل أفقي باش ما يهبطوش لتحت بزاف
-        c_res1, c_res2, c_res3 = st.columns(3)
-        c_res1.metric("Total HT Net", f"{net_ht:,.2f} DH")
-        c_res2.metric("TVA (20%)", f"{val_tva:,.2f} DH")
-        c_res3.error(f"**TOTAL TTC: {total_ttc:,.2f} DH**")
+                st.write(f"**Total HT Net:** {net_ht:,.2f} DH")
+                st.write(f"**TVA (20%):** {val_tva:,.2f} DH")
+                st.error(f"### TOTAL TTC: {total_ttc:,.2f} DH")
 
-        # 4. أزرار التحكم والـ PDF (الإصلاح الجديد)
-        st.markdown("---")
-        b1, b2, b3 = st.columns(3)
+            # 5. أزرار التحكم
+            st.markdown("---")
+            b1, b2, b3 = st.columns(3)
 
-        if b1.button("💾 حفظ في Sheet", type="primary", use_container_width=True):
-            new_row = pd.DataFrame([[str(len(df_f)+1), datetime.now().strftime("%d/%m/%Y"), d_num, s_client, f"{net_ht:.2f}", f"{val_tva:.2f}", f"{total_ttc:.2f}"]], columns=df_f.columns)
-            if save_data("Facturations", pd.concat([df_f, new_row], ignore_index=True)):
-                st.success("✅ تم الحفظ!")
-                st.session_state.cart = []
-                st.rerun()
+            if b1.button("💾 حفظ في Sheet", type="primary", use_container_width=True):
+                new_data = pd.DataFrame([[
+                    str(len(df_f)+1), datetime.now().strftime("%d/%m/%Y"), d_num, 
+                    s_client, f"{net_ht:.2f}", f"{val_tva:.2f}", f"{total_ttc:.2f}"
+                ]], columns=["ID", "Date", "Num_Facture", "Client", "HT", "TVA", "TTC"])
+                if save_data("Facturations", pd.concat([df_f, new_data], ignore_index=True)):
+                    st.success("✅ تم الحفظ بنجاح!")
+                    st.session_state.cart = []
+                    st.rerun()
 
-        if b2.button("📥 تحميل PDF", use_container_width=True):
-            try:
+            if b2.button("📥 تحميل PDF", use_container_width=True):
                 pdf = FPDF()
                 pdf.add_page()
                 pdf.set_font("Arial", 'B', 16)
                 pdf.cell(0, 10, f"MVAC - {d_type} {d_num}", ln=True, align='C')
-                pdf.set_font("Arial", '', 12)
                 pdf.ln(10)
+                pdf.set_font("Arial", '', 12)
                 pdf.cell(0, 10, f"Client: {s_client} | Date: {datetime.now().strftime('%d/%m/%Y')}", ln=True)
-                pdf.ln(5)
                 for item in st.session_state.cart:
                     pdf.cell(0, 8, f"- {item['Désignation']} | {item['Qte']} {item['Unité']} | {item['Total']:.2f} DH", ln=True)
-                pdf.ln(10)
-                pdf.set_font("Arial", 'B', 14)
+                pdf.ln(5)
                 pdf.cell(0, 10, f"TOTAL TTC: {total_ttc:,.2f} DH", ln=True, align='R')
                 
-                # الطريقة الصحيحة لإخراج الـ PDF في Streamlit
+                # تصدير PDF
                 pdf_output = pdf.output(dest='S').encode('latin-1')
                 b64 = base64.b64encode(pdf_output).decode()
-                href = f'<a href="data:application/pdf;base64,{b64}" download="{d_num}.pdf" style="text-decoration:none;"><div style="background-color:green;color:white;padding:10px;text-align:center;border-radius:5px;">إضغط هنا لتحميل الفاتورة PDF 📥</div></a>'
+                href = f'<a href="data:application/pdf;base64,{b64}" download="{d_num}.pdf" style="text-decoration:none;"><button style="width:100%;background-color:#28a745;color:white;border:none;padding:10px;border-radius:5px;">إضغط هنا للتحميل 📥</button></a>'
                 st.markdown(href, unsafe_allow_html=True)
-            except Exception as e:
-                st.error(f"Error PDF: {e}")
 
-        if b3.button("🔄 إفراغ", use_container_width=True):
-            st.session_state.cart = []
-            st.rerun()
+            if b3.button("🔄 إفراغ", use_container_width=True):
+                st.session_state.cart = []
+                st.rerun()

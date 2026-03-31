@@ -120,42 +120,49 @@ if page == "👥 إدارة الزبناء":
 # =========================================================
 # 📦 4. صفحة إدارة السلعة (بنفس نظام الزبناء)
 # =========================================================
-import streamlit as st
-import pandas as pd
-from streamlit_gsheets import GSheetsConnection
+elif page == "📦 إدارة السلعة":
+    st.title("📦 إدارة السلعة (Inventory)")
+    COLS_M = ["ID", "المرجع", "السلعة", "الوحدة", "الكمية", "ثمن الوحدة"]
+    df_m = load_data("Materiels")
 
-# 🛠️ 1. الإعدادات
-st.set_page_config(page_title="إدارة السلعة - MVAC", layout="wide", page_icon="📦")
+    with st.expander("➕ إضافة سلعة جديدة"):
+        with st.form("form_add_mat", clear_on_submit=True):
+            m1, m2, m3 = st.columns(3)
+            with m1:
+                ref = st.text_input("🔢 المرجع (Ref)")
+                des = st.text_input("📝 السلعة *")
+            with m2:
+                uni = st.selectbox("📏 الوحدة", ["U", "M", "M2", "ML", "Kg", "Ens"])
+                qte = st.text_input("🔢 الكمية", value="0")
+            with m3:
+                pri = st.text_input("💰 ثمن الوحدة HT")
+            if st.form_submit_button("حفظ السلعة ✅"):
+                if des:
+                    new_id = str(int(pd.to_numeric(df_m["ID"], errors='coerce').max() + 1)) if not df_m.empty else "1"
+                    new_row = pd.DataFrame([[new_id, ref, des, uni, qte, pri]], columns=COLS_M)
+                    if save_data("Materiels", pd.concat([df_m, new_row], ignore_index=True)):
+                        st.success("✅ تم الحفظ!"); st.rerun()
 
-conn = st.connection("gsheets", type=GSheetsConnection)
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1D5ogjG53HMl791W1RfHDEk0ngom0P4uf-cCPWgBjwAs/edit"
+    search_m = st.text_input("🔍 قلب بسمية السلعة...")
+    df_fm = df_m[df_m['السلعة'].str.contains(search_m, case=False, na=False)] if not df_m.empty else df_m
 
-# الأعمدة حسب ترتيب Google Sheets اللي عندك
-COLS_M = ["ID", "المرجع", "السلعة", "الوحدة", "الكمية", "ثمن الوحدة"]
+    for idx, row in df_fm.iterrows():
+        with st.container(border=True):
+            c_info, c_btns = st.columns([3, 1])
+            c_info.write(f"### 📦 {row['السلعة']} (Ref: {row['المرجع']})")
+            c_info.write(f"🔢 Qte: `{row['الكمية']}` | 💰 Price: `{row['ثمن الوحدة']} DH`")
+            
+            if c_btns.button("📝 تعديل", key=f"em_{row['ID']}"): st.session_state[f"edit_m_{row['ID']}"] = True
+            if c_btns.button("🗑️ حذف", key=f"dm_{row['ID']}"): st.session_state[f"del_m_{row['ID']}"] = True
 
-# 🔄 دالة جلب البيانات وتنقية الأرقام
-def load_data():
-    try:
-        st.cache_data.clear()
-        df = conn.read(spreadsheet=SHEET_URL, worksheet="Materiels", ttl=0)
-        if df is not None and not df.empty:
-            df.columns = df.columns.str.strip()
-            # تنظيف: تحويل لنصوص ومسح الفاصلة زيرو (.0)
-            df = df.fillna("").astype(str).replace(r'\.0$', '', regex=True)
-            return df[COLS_M]
-        return pd.DataFrame(columns=COLS_M)
-    except:
-        return pd.DataFrame(columns=COLS_M)
-
-# 💾 دالة الحفظ
-def save_data(df):
-    try:
-        conn.update(spreadsheet=SHEET_URL, worksheet="Materiels", data=df)
-        return True
-    except Exception as e:
-        st.error(f"❌ خطأ في الحفظ: {e}")
-        return False
-
+            if st.session_state.get(f"edit_m_{row['ID']}", False):
+                with st.container(border=True):
+                    m_en_des = st.text_input("السلعة", value=row['السلعة'], key=f"md_{row['ID']}")
+                    m_en_qte = st.text_input("الكمية", value=row['الكمية'], key=f"mq_{row['ID']}")
+                    m_en_pri = st.text_input("الثمن", value=row['ثمن الوحدة'], key=f"mp_{row['ID']}")
+                    if st.button("تحديث 💾", key=f"up_m_{row['ID']}"):
+                        df_m.loc[idx, ["السلعة", "الكمية", "ثمن الوحدة"]] = [m_en_des, m_en_qte, m_en_pri]
+                        if save_data("Materiels", df_m): st.rerun()
 # =========================================================
 # 📦 واجهة إدارة السلعة
 # =========================================================

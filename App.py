@@ -167,37 +167,42 @@ elif page == "📦 إدارة السلعة":
 # =========================================================
 # 📄 5. صفحة الفاتورة (Facturation)
 # ========================================================================================================================================================================
+# =========================================================
+# 📄 صفحة الفاتورة المستقرة - MVAC SYSTEM
+# =========================================================
 elif page == "📄 Devis / Facture":
     st.title("📄 Devis / Facture")
     
-    # 1. جلب البيانات
+    # 1. جلب البيانات من Google Sheets
     df_c = load_data("Customers")
     df_m = load_data("Materiels")
     df_f = load_data("Facturations")
 
-    if 'cart' not in st.session_state: 
-        st.session_state.cart = []
-
+    # --- تهيئة الذاكرة (Session State) ---
+    if 'cart' not in st.session_state: st.session_state.cart = []
+    
+    # تحذير إيلا كانت البيانات ناقصة
     if df_c.empty or df_m.empty:
         st.error("⚠️ خاصك تعمر الكليان والسلعة هما اللولين!")
     else:
-        # 2. إعدادات الوثيقة (الزبون والرقم)
+        # 2. إعدادات الوثيقة (ثابتة بـ Key)
         with st.container(border=True):
             c1, c2, c3 = st.columns([1, 2, 1])
-            d_type = c1.selectbox("النوع", ["DEVIS", "FACTURE"], key="fixed_type")
-            s_client = c2.selectbox("اختار الزبون", df_c['الاسم/الشركة'].tolist(), key="fixed_client")
-            d_num = c3.text_input("رقم الوثيقة", value=f"{d_type[:1]}{datetime.now().strftime('%y%m%d%H%M')}", key="fixed_num")
+            # استعملنا key باش الاختيار ما يطرش فاش تزيد السلعة
+            d_type = c1.selectbox("النوع", ["DEVIS", "FACTURE"], key="st_doc_type")
+            s_client = c2.selectbox("اختار الزبون", df_c['الاسم/الشركة'].tolist(), key="st_client_name")
+            d_num = c3.text_input("رقم الوثيقة", value=f"{d_type[:1]}{datetime.now().strftime('%y%m%d%H%M')}", key="st_doc_num")
 
         # 3. إضافة السلعة
         with st.container(border=True):
             st.subheader("📦 إضافة السلع")
             i1, i2, i3, i4 = st.columns([3, 1, 1, 1])
-            s_name = i1.selectbox("اختار السلعة", df_m['السلعة'].tolist(), key="fixed_item")
+            s_name = i1.selectbox("اختار السلعة", df_m['السلعة'].tolist(), key="st_item_select")
             
             m_info = df_m[df_m['السلعة'] == s_name].iloc[0]
-            s_unit = i2.text_input("الوحدة", value=m_info['الوحدة'], key="f_unit")
-            s_qte = i3.number_input("الكمية", min_value=0.1, value=1.0, step=0.5, key="f_qte")
-            s_price = i4.number_input("الثمن HT", value=float(m_info['ثمن الوحدة']), key="f_price")
+            s_unit = i2.text_input("الوحدة", value=m_info['الوحدة'], key="st_unit")
+            s_qte = i3.number_input("الكمية", min_value=0.1, value=1.0, step=0.5, key="st_qte")
+            s_price = i4.number_input("الثمن HT", value=float(m_info['ثمن الوحدة']), key="st_price")
 
             if st.button("➕ إضافة السطر", use_container_width=True):
                 st.session_state.cart.append({
@@ -205,26 +210,25 @@ elif page == "📄 Devis / Facture":
                 })
                 st.rerun()
 
-        # 4. عرض الجدول + إمكانية المسح 🗑️
+        # 4. عرض الجدول + المسح (الذي طلبته)
         if st.session_state.cart:
             st.markdown("### 🛒 السلع المضافة")
-            # عرض الجدول
-            st.table(pd.DataFrame(st.session_state.cart))
+            # استعملت dataframe عوض table باش ما ياكلش المساحة بزاف
+            st.dataframe(pd.DataFrame(st.session_state.cart), use_container_width=True)
 
-            # جزء المسح (اللي حيدت ليك ورجعتو دابا)
             with st.expander("📝 مراجعة أو مسح أسطر"):
                 for idx, item in enumerate(st.session_state.cart):
-                    col_txt, col_del = st.columns([4, 1])
-                    col_txt.write(f"{item['Désignation']} | {item['Qte']} {item['Unité']}")
-                    if col_del.button("❌", key=f"del_item_{idx}"):
+                    col_t, col_b = st.columns([4, 1])
+                    col_t.write(f"{item['Désignation']} ({item['Qte']} {item['Unité']})")
+                    if col_b.button("❌", key=f"del_{idx}"):
                         st.session_state.cart.pop(idx)
                         st.rerun()
 
-            # 5. الحسابات والعمولة
+            # 5. الحسابات (TVA & TTC) - عرض واضح جداً
             st.markdown("---")
-            c_left, c_right = st.columns([2, 1])
-            with c_right:
-                remise_p = st.selectbox("العمولة (%)", [0, 5, 10, 15, 20, 25, 30, 50], key="fixed_remise")
+            res_l, res_r = st.columns([2, 1])
+            with res_r:
+                remise_p = st.selectbox("العمولة (%)", [0, 5, 10, 15, 20, 25, 30, 50], key="st_remise")
                 
                 raw_ht = sum(i['Total'] for i in st.session_state.cart)
                 val_rem = raw_ht * (remise_p / 100)
@@ -232,15 +236,17 @@ elif page == "📄 Devis / Facture":
                 val_tva = net_ht * 0.20
                 total_ttc = net_ht + val_tva
 
+                # عرض النتائج بألوان واضحة
                 st.write(f"**Total HT Net:** {net_ht:,.2f} DH")
-                st.write(f"**TVA (20%):** {val_tva:,.2f} DH")
+                st.info(f"**TVA (20%):** {val_tva:,.2f} DH")
                 st.error(f"### TOTAL TTC: {total_ttc:,.2f} DH")
 
-            # 6. أزرار التحكم (حفظ، PDF، إفراغ)
+            # 6. أزرار التحكم (إصلاح الـ PDF)
             st.markdown("---")
             b1, b2, b3 = st.columns(3)
 
             if b1.button("💾 حفظ في Sheet", type="primary", use_container_width=True):
+                # هنا كنعمرو الجدول اللي فيه ID, Date, Num_Facture...
                 new_f = pd.DataFrame([[
                     str(len(df_f)+1), datetime.now().strftime("%d/%m/%Y"), d_num,
                     s_client, f"{net_ht:.2f}", f"{val_tva:.2f}", f"{total_ttc:.2f}"
@@ -254,35 +260,25 @@ elif page == "📄 Devis / Facture":
                 try:
                     pdf = FPDF()
                     pdf.add_page()
-                    # ملاحظة: Arial تقدر تعطي مشكل في بعض النسخ، استعمل Helvetica كبديل أضمن
-                    pdf.set_font("Helvetica", 'B', 16) 
-                    pdf.cell(0, 10, f"MVAC - {d_type} {d_num}", ln=True, align='C')
+                    pdf.set_font("Helvetica", 'B', 16)
+                    pdf.cell(0, 10, f"MVAC SYSTEM - {d_type}", ln=True, align='C')
                     pdf.set_font("Helvetica", '', 12)
                     pdf.ln(10)
                     pdf.cell(0, 10, f"Client: {s_client} | Date: {datetime.now().strftime('%d/%m/%Y')}", ln=True)
-                    pdf.ln(5)
-                    
                     for i in st.session_state.cart:
                         pdf.cell(0, 8, f"- {i['Désignation']} | {i['Qte']} {i['Unité']} | {i['Total']:.2f} DH", ln=True)
-                    
-                    pdf.ln(10)
+                    pdf.ln(5)
                     pdf.set_font("Helvetica", 'B', 14)
                     pdf.cell(0, 10, f"TOTAL TTC: {total_ttc:,.2f} DH", ln=True, align='R')
                     
-                    # --- الإصلاح الحقيقي هنا ---
-                    # كنبدلو pdf.output(dest='S') بهادي:
-                    pdf_output = pdf.output() 
+                    pdf_bytes = pdf.output()
+                    if isinstance(pdf_bytes, str): pdf_bytes = pdf_bytes.encode('latin-1')
                     
-                    # تحويل النتيجة لـ Bytes إذا كانت نصوص (على حسب نسخة المكتبة)
-                    if isinstance(pdf_output, str):
-                        pdf_output = pdf_output.encode('latin-1')
-                    
-                    b64 = base64.b64encode(pdf_output).decode()
-                    href = f'<a href="data:application/pdf;base64,{b64}" download="{d_num}.pdf" style="text-decoration:none;"><button style="width:100%;background-color:#28a745;color:white;border:none;padding:10px;border-radius:5px;cursor:pointer;">إضغط هنا للتحميل النهائي 📥</button></a>'
-                    st.markdown(href, unsafe_allow_html=True)
-                    
+                    b64 = base64.b64encode(pdf_bytes).decode()
+                    st.markdown(f'<a href="data:application/pdf;base64,{b64}" download="{d_num}.pdf" style="text-decoration:none;"><button style="width:100%;background-color:#28a745;color:white;border:none;padding:10px;border-radius:5px;cursor:pointer;">إضغط هنا للتحميل 📥</button></a>', unsafe_allow_html=True)
                 except Exception as e:
-                    st.error(f"عطب فني في الـ PDF: {e}")
+                    st.error(f"Error PDF: {e}")
+
             if b3.button("🔄 إفراغ الجدول", use_container_width=True):
                 st.session_state.cart = []
                 st.rerun()

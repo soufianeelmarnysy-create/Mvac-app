@@ -170,7 +170,7 @@ elif page == "📦 إدارة السلعة":
 elif page == "📄 Devis / Facture":
     st.header("📄 Gestion des Factures & Devis PRO")
     
-    # 1. جلب البيانات (مع معالجة الأسماء والمسافات)
+    # 1. جلب البيانات
     df_c = load_data("Customers")
     df_m = load_data("Materiels")
     df_f = load_data("Facturations")
@@ -181,76 +181,74 @@ elif page == "📄 Devis / Facture":
     # 2. إعدادات الوثيقة
     with st.container(border=True):
         c1, c2, c3 = st.columns([1, 2, 1])
-        d_type = c1.selectbox("Type", ["DEVIS", "FACTURE"], key="mvac_type_doc")
+        d_type = c1.selectbox("Type", ["DEVIS", "FACTURE"], key="doc_type_v3")
         
-        c_list = df_c['الاسم/الشركة'].tolist() if not df_c.empty else ["Client Standard"]
-        s_client = c2.selectbox("Client", c_list, key="mvac_client_sel")
+        # تنظيف أسماء الزبناء
+        c_list = df_c.iloc[:, 1].tolist() if not df_c.empty else ["Client Standard"]
+        s_client = c2.selectbox("Client", c_list, key="client_sel_v3")
         d_num = c3.text_input("N° Doc", value=f"{d_type[0]}{datetime.now().strftime('%y%m%d%H%M')}")
 
-    # 3. إضافة السلع (تصحيح جلب الثمن والوحدة)
+    # 3. إضافة السلع (تصحيح البحث عن الثمن والوحدة)
     with st.container(border=True):
         st.subheader("📦 Ajouter des articles")
         i1, i2, i3, i4 = st.columns([3, 1, 1, 1])
         
-        m_list = df_m['السلعة'].tolist() if not df_m.empty else []
-        s_name = i1.selectbox("Article", [""] + m_list, key="mvac_art_input")
+        # تنظيف قائمة السلع
+        m_list = df_m.iloc[:, 1].tolist() if not df_m.empty else []
+        s_name = i1.selectbox("Article", [""] + m_list, key="art_input_v3")
         
         u_v, p_v = "", 0.0
         if s_name != "" and not df_m.empty:
-            # كنقلبو على السلعة وكنحيدو أي مسافات زايدة من السميات
-            m_info = df_m[df_m['السلعة'] == s_name].iloc[0]
+            # كنقلبو على السطر اللي فيه هاد السلعة بالضبط
+            # استعملنا iloc[:, 1] باش نتفاداو مشاكل سميات الأعمدة
+            row = df_m[df_m.iloc[:, 1] == s_name].iloc[0]
             
-            # تصحيح قراءة الوحدة
-            u_v = str(m_info.get('الوحدة', ''))
+            # جلب الوحدة (غالباً هي العمود الثالث index 2)
+            u_v = str(row.iloc[2]) if len(row) > 2 else ""
             
-            # تصحيح قراءة الثمن (تحويله لرقم حقيقي)
+            # جلب الثمن (غالباً هو العمود الرابع index 3) وتحويله لرقم
             try:
-                raw_price = str(m_info.get('ثمن الوحدة', 0)).replace(',', '.')
-                p_v = float(raw_price)
+                raw_p = str(row.iloc[3]).replace(',', '.').strip()
+                p_v = float(raw_p)
             except:
                 p_v = 0.0
 
-        s_unit = i2.text_input("Unité", value=u_v, key="mvac_u")
-        s_qte = i3.number_input("Qté", min_value=0.1, value=1.0, step=0.1, key="mvac_q")
-        s_price = i4.number_input("Prix HT", value=p_v, key="mvac_p")
+        s_unit = i2.text_input("Unité", value=u_v, key="u_v3")
+        s_qte = i3.number_input("Qté", min_value=0.1, value=1.0, key="q_v3")
+        s_price = i4.number_input("Prix HT", value=p_v, key="p_v3")
 
         if st.button("➕ Ajouter à la liste", use_container_width=True):
             if s_name != "":
-                # هنا فين كيتحسب الطوطال ديال كل سطر
-                total_row = s_qte * s_price
                 st.session_state.cart.append({
                     "Désignation": s_name, 
                     "Unité": s_unit,
                     "Qte": s_qte, 
                     "PU_HT": s_price, 
-                    "Total_HT": total_row
+                    "Total_HT": s_qte * s_price
                 })
                 st.rerun()
 
-    # 4. عرض الجدول والمسح
+    # 4. عرض القائمة
     if st.session_state.cart:
-        st.markdown("### 🛒 Liste des articles")
+        st.markdown("---")
         for idx, item in enumerate(st.session_state.cart):
-            col_l1, col_l2 = st.columns([6, 1])
-            col_l1.info(f"**{item['Désignation']}** | {item['Qte']} {item['Unité']} x {item['PU_HT']} = {item['Total_HT']:.2f} DH")
-            if col_l2.button("🗑️", key=f"del_{idx}"):
+            col1, col2 = st.columns([6, 1])
+            col1.info(f"**{item['Désignation']}** | {item['Qte']} {item['Unité']} x {item['PU_HT']} = {item['Total_HT']:.2f} DH")
+            if col2.button("🗑️", key=f"del_{idx}"):
                 st.session_state.cart.pop(idx)
                 st.rerun()
 
-        # 5. الحسابات الإجمالية
-        st.markdown("---")
+        # 5. الحسابات
         ht_brut = sum(float(i['Total_HT']) for i in st.session_state.cart)
-        
         remise_pct = st.number_input("Remise (%)", min_value=0, max_value=100, value=0)
         remise_val = ht_brut * (remise_pct / 100)
-        
         ht_net = ht_brut - remise_val
         tva_val = ht_net * 0.20
         ttc_total = ht_net + tva_val
 
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Total Brut", f"{ht_brut:,.2f} DH")
-        m2.metric(f"Remise", f"-{remise_val:,.2f} DH")
+        m1.metric("Total HT", f"{ht_brut:,.2f} DH")
+        m2.metric("Remise", f"-{remise_val:,.2f} DH")
         m3.metric("TVA (20%)", f"{tva_val:,.2f} DH")
         m4.metric("TOTAL TTC", f"{ttc_total:,.2f} DH")
 
@@ -259,9 +257,9 @@ elif page == "📄 Devis / Facture":
             ttc_letters = num2words(ttc_total, lang='fr').upper() + " DIRHAMS"
         except:
             ttc_letters = "---"
-        st.success(f"**Somme en lettres :** {ttc_letters}")
+        st.success(f"**En lettres :** {ttc_letters}")
 
-        # 6. أزرار الحفظ والتحميل (تم التصحيح)
+        # 6. الأزرار (تصحيح مشكل PDF)
         b1, b2 = st.columns(2)
         
         if b1.button("💾 Enregistrer dans Sheets", type="primary", use_container_width=True):
@@ -270,7 +268,6 @@ elif page == "📄 Devis / Facture":
                 str(len(df_f)+1), datetime.now().strftime("%d/%m/%Y"), d_type, d_num, 
                 s_client, summary, f"{ht_net:.2f}", f"{tva_val:.2f}", f"{ttc_total:.2f}"
             ]], columns=["ID", "Date", "Type", "Num_Facture", "Client", "Articles", "HT", "TVA", "TTC"])
-            
             if save_data("Facturations", pd.concat([df_f, new_row])):
                 st.success("✅ Enregistré !")
 
@@ -278,42 +275,30 @@ elif page == "📄 Devis / Facture":
             try:
                 pdf = FPDF()
                 pdf.add_page()
+                pdf.set_font("Arial", 'B', 16)
+                pdf.cell(0, 10, f"{d_type} N°: {d_num}", ln=1, align='C')
+                pdf.ln(10)
                 
-                #Header
-                try: pdf.image("logo.png", 10, 8, 45)
-                except: pdf.set_font("Arial", 'B', 16); pdf.cell(0, 10, "M-VAC SYSTEM", ln=1)
+                pdf.set_font("Arial", 'B', 10)
+                pdf.cell(100, 10, "Designation", 1); pdf.cell(30, 10, "Qte", 1); pdf.cell(60, 10, "Total HT", 1, ln=1)
                 
-                pdf.set_font("Arial", 'B', 12)
-                pdf.cell(0, 10, f"{d_type} N°: {d_num}", ln=1, align='R')
-                pdf.ln(20)
-                
-                # Table
-                pdf.set_fill_color(0, 60, 60); pdf.set_text_color(255, 255, 255)
-                pdf.cell(100, 10, " DESIGNATION", 1, 0, 'L', True)
-                pdf.cell(30, 10, "QTE", 1, 0, 'C', True)
-                pdf.cell(60, 10, "TOTAL HT", 1, 1, 'C', True)
-                
-                pdf.set_text_color(0, 0, 0); pdf.set_font("Arial", '', 9)
+                pdf.set_font("Arial", '', 9)
                 for item in st.session_state.cart:
-                    pdf.cell(100, 8, f" {item['Désignation']}", 1)
-                    pdf.cell(30, 8, f"{item['Qte']} {item['Unité']}", 1, 0, 'C')
-                    pdf.cell(60, 8, f"{item['Total_HT']:.2f}", 1, 1, 'R')
-
-                # Totals
-                pdf.ln(5); pdf.set_font("Arial", 'B', 10)
-                pdf.cell(130, 8, "TOTAL HT NET :", 0, 0, 'R'); pdf.cell(60, 8, f"{ht_net:.2f}", 1, 1, 'R')
-                pdf.cell(130, 8, "TVA (20%) :", 0, 0, 'R'); pdf.cell(60, 8, f"{tva_val:.2f}", 1, 1, 'R')
-                pdf.set_fill_color(230, 230, 230)
-                pdf.cell(130, 10, "TOTAL TTC :", 0, 0, 'R'); pdf.cell(60, 10, f"{ttc_total:.2f} DH", 1, 1, 'R', True)
+                    pdf.cell(100, 8, str(item['Désignation']), 1)
+                    pdf.cell(30, 8, f"{item['Qte']} {item['Unité']}", 1)
+                    pdf.cell(60, 8, f"{item['Total_HT']:.2f} DH", 1, ln=1)
                 
-                pdf.ln(10); pdf.multi_cell(0, 8, f"ARRETER LA SOMME A : {ttc_letters}")
-
-                # تصحيح طريقة التحميل (بدون .encode() لأن 'S' كتعطي ديجا bytes)
+                pdf.ln(5)
+                pdf.set_font("Arial", 'B', 11)
+                pdf.cell(130, 10, "TOTAL TTC :", 0); pdf.cell(60, 10, f"{ttc_total:.2f} DH", 1, ln=1)
+                
+                # حل مشكل bytearray: كنستعملو 'S' وكنحولوه مباشرة لـ base64
                 pdf_output = pdf.output(dest='S')
-                b64 = base64.b64encode(pdf_output).decode()
+                # نأكدوا أنه bytes قبل التحويل
+                pdf_bytes = bytes(pdf_output) 
+                b64 = base64.b64encode(pdf_bytes).decode()
                 href = f'<a href="data:application/pdf;base64,{b64}" download="{d_num}.pdf" style="text-decoration:none;"><button style="width:100%; background-color:#005050; color:white; padding:10px; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">📥 Télécharger le PDF</button></a>'
                 st.markdown(href, unsafe_allow_html=True)
-                
             except Exception as e:
                 st.error(f"Erreur PDF: {e}")
 

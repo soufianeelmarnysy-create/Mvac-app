@@ -251,22 +251,38 @@ elif page == "📄 Devis / Facture":
                     st.rerun()
 
             if b2.button("📥 تحميل PDF", use_container_width=True):
-                pdf = FPDF()
-                pdf.add_page()
-                pdf.set_font("Arial", 'B', 16)
-                pdf.cell(0, 10, f"MVAC - {d_type} {d_num}", ln=True, align='C')
-                pdf.set_font("Arial", '', 12)
-                pdf.ln(10)
-                pdf.cell(0, 10, f"Client: {s_client} | Date: {datetime.now().strftime('%d/%m/%Y')}", ln=True)
-                for i in st.session_state.cart:
-                    pdf.cell(0, 8, f"- {i['Désignation']} | {i['Qte']} {i['Unité']} | {i['Total']:.2f} DH", ln=True)
-                pdf.ln(10)
-                pdf.cell(0, 10, f"TOTAL TTC: {total_ttc:,.2f} DH", ln=True, align='R')
-                
-                pdf_out = pdf.output(dest='S').encode('latin-1')
-                b64 = base64.b64encode(pdf_out).decode()
-                st.markdown(f'<a href="data:application/pdf;base64,{b64}" download="{d_num}.pdf" style="text-decoration:none;"><button style="width:100%;background-color:#28a745;color:white;border:none;padding:10px;border-radius:5px;cursor:pointer;">إضغط هنا للتحميل 📥</button></a>', unsafe_allow_html=True)
-
+                try:
+                    pdf = FPDF()
+                    pdf.add_page()
+                    # ملاحظة: Arial تقدر تعطي مشكل في بعض النسخ، استعمل Helvetica كبديل أضمن
+                    pdf.set_font("Helvetica", 'B', 16) 
+                    pdf.cell(0, 10, f"MVAC - {d_type} {d_num}", ln=True, align='C')
+                    pdf.set_font("Helvetica", '', 12)
+                    pdf.ln(10)
+                    pdf.cell(0, 10, f"Client: {s_client} | Date: {datetime.now().strftime('%d/%m/%Y')}", ln=True)
+                    pdf.ln(5)
+                    
+                    for i in st.session_state.cart:
+                        pdf.cell(0, 8, f"- {i['Désignation']} | {i['Qte']} {i['Unité']} | {i['Total']:.2f} DH", ln=True)
+                    
+                    pdf.ln(10)
+                    pdf.set_font("Helvetica", 'B', 14)
+                    pdf.cell(0, 10, f"TOTAL TTC: {total_ttc:,.2f} DH", ln=True, align='R')
+                    
+                    # --- الإصلاح الحقيقي هنا ---
+                    # كنبدلو pdf.output(dest='S') بهادي:
+                    pdf_output = pdf.output() 
+                    
+                    # تحويل النتيجة لـ Bytes إذا كانت نصوص (على حسب نسخة المكتبة)
+                    if isinstance(pdf_output, str):
+                        pdf_output = pdf_output.encode('latin-1')
+                    
+                    b64 = base64.b64encode(pdf_output).decode()
+                    href = f'<a href="data:application/pdf;base64,{b64}" download="{d_num}.pdf" style="text-decoration:none;"><button style="width:100%;background-color:#28a745;color:white;border:none;padding:10px;border-radius:5px;cursor:pointer;">إضغط هنا للتحميل النهائي 📥</button></a>'
+                    st.markdown(href, unsafe_allow_html=True)
+                    
+                except Exception as e:
+                    st.error(f"عطب فني في الـ PDF: {e}")
             if b3.button("🔄 إفراغ الجدول", use_container_width=True):
                 st.session_state.cart = []
                 st.rerun()

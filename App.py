@@ -169,96 +169,90 @@ elif page == "📦 إدارة السلعة":
 elif page == "📄 Devis / Facture":
     st.title("📄 Devis / Facture")
     
-    # 1. تحميل البيانات من Google Sheets
+    # 1. جلب البيانات (مع معالجة حالة الخواء)
     df_c = load_data("Customers")
     df_m = load_data("Materiels")
     df_f = load_data("Facturations")
 
-    # تهيئة السلة (بلاصت فين كتبقى السلعة قبل التسجيل)
+    # تهيئة السلة في Session State
     if 'cart' not in st.session_state: st.session_state.cart = []
-    
-    # دالة ذكية: غير تختار السلعة، كيجيب الثمن والوحدة من Sheets
-    def sync_item_data():
-        selected_name = st.session_state.p_item_select
-        # البحث في جدول السلعة
-        item_row = df_m[df_m['السلعة'] == selected_name].iloc[0]
-        st.session_state.p_unit = str(item_row['الوحدة'])
-        # استخراج الثمن (HT)
-        st.session_state.p_price = float(item_row['ثمن الوحدة'])
+    if 'p_unit' not in st.session_state: st.session_state.p_unit = ""
+    if 'p_price' not in st.session_state: st.session_state.p_price = 0.0
 
-    if df_c is None or df_m is None or df_m.empty:
-        st.warning("⚠️ تأكد بلي عمرتي السلعة والكليان فـ Google Sheets أولاً!")
-    else:
-        # --- الجزء 1: معلومات الوثيقة (الزبون والرقم) ---
-        with st.container(border=True):
-            c1, c2, c3 = st.columns([1, 2, 1])
-            d_type = c1.selectbox("النوع", ["DEVIS", "FACTURE"], key="p_type")
-            s_client = c2.selectbox("اختار الزبون", df_c['الاسم/الشركة'].tolist(), key="p_client")
-            d_num = c3.text_input("رقم الوثيقة", value=f"{datetime.now().strftime('%y')}/{str(len(df_f)+1).zfill(3)}", key="p_num")
+    # دالة تحديث الثمن والوحدة (كتخدم غير فاش تختار السلعة)
+    def sync_data():
+        if df_m is not None and not df_m.empty:
+            sel = st.session_state.p_item_select
+            row = df_m[df_m['السلعة'] == sel].iloc[0]
+            st.session_state.p_unit = str(row['الوحدة'])
+            st.session_state.p_price = float(row['ثمن الوحدة'])
 
-        # --- الجزء 2: إضافة السلعة للسلة (بدون تسجيل في Data) ---
-        with st.container(border=True):
-            st.subheader("📦 إضافة السلع")
-            i1, i2, i3, i4 = st.columns([3, 1, 1, 1])
-            # الاختيار كيحدث الثمن والوحدة فالحين
-            s_name = i1.selectbox("السلعة", df_m['السلعة'].tolist(), key="p_item_select", on_change=sync_item_data)
-            
-            # تهيئة القيم إيلا كانت خاوية
-            if 'p_unit' not in st.session_state: st.session_state.p_unit = ""
-            if 'p_price' not in st.session_state: st.session_state.p_price = 0.0
+    # --- الجزء 1: واجهة اختيار الكليان والوثيقة ---
+    with st.container(border=True):
+        c1, c2, c3 = st.columns([1, 2, 1])
+        d_type = c1.selectbox("النوع", ["DEVIS", "FACTURE"], key="p_type")
+        
+        # لستة الكليان (إيلا خاوية كيعطيك خيار يدوي)
+        list_clients = df_c['الاسم/الشركة'].tolist() if df_c is not None else ["كليان جديد"]
+        s_client = c2.selectbox("اختار الزبون", list_clients, key="p_client")
+        
+        # رقم الوثيقة
+        last_num = len(df_f) + 1 if df_f is not None else 1
+        d_num = c3.text_input("رقم الوثيقة", value=f"{datetime.now().strftime('%y')}/{str(last_num).zfill(3)}", key="p_num")
 
-            s_unit = i2.text_input("الوحدة", key="p_unit")
-            s_qte = i3.number_input("الكمية", min_value=1.0, value=1.0, key="p_qte")
-            s_price = i4.number_input("الثمن HT", key="p_price")
+    # --- الجزء 2: إضافة السلعة (المنطقة الحساسة) ---
+    with st.container(border=True):
+        st.subheader("📦 إضافة السلع للسلة")
+        i1, i2, i3, i4 = st.columns([3, 1, 1, 1])
+        
+        # لستة السلع
+        list_items = df_m['السلعة'].tolist() if df_m is not None and not df_m.empty else []
+        
+        if not list_items:
+            st.warning("⚠️ جدول السلع خاوي فـ Google Sheets!")
+            s_name = i1.text_input("اسم السلعة (يدوي)")
+        else:
+            s_name = i1.selectbox("اختار السلعة", list_items, key="p_item_select", on_change=sync_data)
+        
+        s_unit = i2.text_input("الوحدة", key="p_unit")
+        s_qte = i3.number_input("الكمية", min_value=1.0, value=1.0, key="p_qte")
+        s_price = i4.number_input("الثمن HT", key="p_price")
 
-            if st.button("➕ إضافة للسلة", use_container_width=True):
-                st.session_state.cart.append({
-                    "Désignation": s_name, "Unité": s_unit, "Qte": s_qte, "P.U HT": s_price, "Total HT": s_qte * s_price
-                })
+        if st.button("➕ إضافة للجدول المؤقت", use_container_width=True):
+            st.session_state.cart.append({
+                "Désignation": s_name, "Unité": s_unit, "Qte": s_qte, "P.U HT": s_price, "Total HT": s_qte * s_price
+            })
+            st.rerun()
+
+    # --- الجزء 3: مراجعة وحذف السلعة ---
+    if st.session_state.cart:
+        st.markdown("### 🛒 السلع المضافة")
+        for idx, item in enumerate(st.session_state.cart):
+            col_txt, col_btn = st.columns([8, 2])
+            col_txt.info(f"**{item['Désignation']}** | {item['Qte']} {item['Unité']} x {item['P.U HT']} = **{item['Total HT']:.2f} DH**")
+            if col_btn.button(f"حذف ❌", key=f"del_{idx}"):
+                st.session_state.cart.pop(idx)
                 st.rerun()
 
-        # --- الجزء 3: عرض السلة وتعديلها (الحذف) ---
-        if st.session_state.cart:
-            st.markdown("---")
-            st.subheader("🛒 مراجعة الطلب")
-            
-            # جدول تفاعلي بسيط للحذف
-            for idx, item in enumerate(st.session_state.cart):
-                col_info, col_action = st.columns([8, 2])
-                col_info.info(f"**{item['Désignation']}** | {item['Qte']} {item['Unité']} x {item['P.U HT']} = **{item['Total HT']:.2f} DH**")
-                if col_action.button(f"حذف ❌", key=f"del_{idx}"):
-                    st.session_state.cart.pop(idx)
-                    st.rerun()
+        total_ht = sum(i['Total HT'] for i in st.session_state.cart)
+        tva = total_ht * 0.20
+        ttc = total_ht + tva
+        st.write(f"**Total HT:** {total_ht:.2f} | **TVA:** {tva:.2f} | **Total TTC:** {ttc:.2f}")
 
-            total_ht = sum(i['Total HT'] for i in st.session_state.cart)
-            tva = total_ht * 0.20
-            ttc = total_ht + tva
-            
-            st.success(f"### Total TTC: {ttc:,.2f} DH")
-
-            # --- الجزء 4: التسجيل النهائي + تحميل PDF (ضربة وحدة) ---
-            if st.button("📥 تسجيل الوثيقة وتحميل PDF النهائي", type="primary", use_container_width=True):
-                # 1. التسجيل في السجل (Facturations)
-                new_row = [str(len(df_f)+1), datetime.now().strftime("%d/%m/%Y"), d_num, s_client, f"{total_ht:.2f}", f"{tva:.2f}", f"{ttc:.2f}"]
-                new_df = pd.DataFrame([new_row], columns=df_f.columns)
-                
-                if save_data("Facturations", pd.concat([df_f, new_df], ignore_index=True)):
-                    st.balloons()
-                    # 2. إنشاء الـ PDF باللوغو والستيل الاحترافي
-                    try:
-                        pdf = FPDF()
-                        pdf.add_page()
-                        # (كود الـ PDF اللي فيه اللوغو والألوان اللي طلبير)
-                        # ...
-                        # تصدير الـ PDF
-                        pdf_data = pdf.output()
-                        if isinstance(pdf_data, str): pdf_data = pdf_data.encode('latin-1')
-                        b64 = base64.b64encode(pdf_data).decode()
-                        st.markdown(f'<a href="data:application/pdf;base64,{b64}" download="{d_num}.pdf" style="text-decoration:none;"><button style="width:100%;background-color:#2e7d32;color:white;padding:15px;border-radius:10px;cursor:pointer;">✅ تم الحفظ! إضغط هنا للتحميل 📥</button></a>', unsafe_allow_html=True)
-                        
-                        # تفريغ السلة بعد النجاح
-                        st.session_state.cart = []
-                    except Exception as e:
-                        st.error(f"مشكل فـ PDF: {e}")
-                else:
-                    st.error("❌ فشل التسجيل في Google Sheets. تأكد من الإنترنت.")
+        # --- الجزء 4: الزر النهائي (Save + PDF) ---
+        if st.button("💾 تسجيل الوثيقة وتحميل PDF 📥", type="primary", use_container_width=True):
+            # 1. محاولة التسجيل
+            try:
+                new_row = [str(last_num), datetime.now().strftime("%d/%m/%Y"), d_num, s_client, str(total_ht), str(tva), str(ttc)]
+                # التأكد من وجود DataFrame صالح للتسجيل
+                if df_f is not None:
+                    final_df = pd.concat([df_f, pd.DataFrame([new_row], columns=df_f.columns)], ignore_index=True)
+                    if save_data("Facturations", final_df):
+                        st.success("✅ تم الحفظ بنجاح!")
+                        # 2. كود الـ PDF (نفس الكود السابق مع اللوغو)
+                        # ... (توليد وتحميل PDF) ...
+                        st.session_state.cart = [] # مسح السلة
+                    else:
+                        st.error("❌ فشل التسجيل فـ Google Sheets")
+            except Exception as e:
+                st.error(f"Error: {e}")

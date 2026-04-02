@@ -166,82 +166,31 @@ elif page == "📦 إدارة السلعة":
 # =========================================================
 # 📄 5. صفحة الفاتورة (Facturation)
 # ========================================================================================================================================================================
-import streamlit as st
-import pandas as pd
-from fpdf import FPDF
-from datetime import datetime
-import base64
-
-# --- 1. CSS الخاص بالديزاين الجديد (FASTCOM Style) ---
-st.markdown("""
-    <style>
-    /* تحسين شكل الحاويات */
-    [data-testid="stMetric"] {
-        background-color: #ffffff;
-        border-radius: 10px;
-        padding: 15px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        border-left: 5px solid #4e73df;
-    }
-    .main-card {
-        background-color: white;
-        padding: 20px;
-        border-radius: 12px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.07);
-        margin-bottom: 20px;
-    }
-    .section-title {
-        color: #1a202c;
-        font-weight: bold;
-        border-bottom: 2px solid #edf2f7;
-        padding-bottom: 10px;
-        margin-bottom: 15px;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- 2. صفحة الـ Facturation بالديزاين الجديد ---
+# --- صفحة Devis / Facture بالتعديل الصحيح للأسماء ---
 if page == "📄 Devis / Facture":
     st.markdown('<h1 style="color: #2d3748;">📄 Gestion des Documents</h1>', unsafe_allow_html=True)
     
-    # جلب البيانات
+    # 1. جلب البيانات
     df_c = load_data("Customers")
     df_m = load_data("Materiels")
     df_f = load_data("Facturations")
 
     if 'cart' not in st.session_state: st.session_state.cart = []
 
-    # دالة المزامنة التلقائية (Sync)
-    def sync_details():
-        if df_m is not None and not df_m.empty:
-            try:
-                selected_name = st.session_state.p_item_select
-                item_row = df_m[df_m.iloc[:, 2] == selected_name].iloc[0]
-                st.session_state.p_unit = str(item_row.iloc[3])
-                st.session_state.p_price = float(item_row.iloc[5])
-            except: pass
-
-    # --- الجزء 1: إضافة السلع (Card العلوي) ---
+    # --- الجزء 1: إضافة السلع (الفوق) ---
     st.markdown('<div class="main-card">', unsafe_allow_html=True)
     st.markdown('<p class="section-title">📦 Ajouter des Articles</p>', unsafe_allow_html=True)
     
+    # لستة السلع من العمود التالت (Index 2)
     items_list = df_m.iloc[:, 2].dropna().tolist() if df_m is not None else []
     
-    # تصحيح أول Load للوحدة والثمن
-    if ('p_unit' not in st.session_state or st.session_state.p_unit == "") and items_list:
-        try:
-            first_row = df_m.iloc[0]
-            st.session_state.p_unit = str(first_row.iloc[3])
-            st.session_state.p_price = float(first_row.iloc[5])
-        except: pass
-
     i1, i2, i3, i4 = st.columns([3, 1, 1, 1])
     s_name = i1.selectbox("Désignation", items_list, key="p_item_select", on_change=sync_details)
     s_unit = i2.text_input("Unité", key="p_unit")
     s_qte = i3.number_input("Qte", min_value=0.1, value=1.0, step=1.0)
     s_price = i4.number_input("P.U HT", key="p_price")
 
-    if st.button("➕ Ajouter à la liste", use_container_width=True, type="secondary"):
+    if st.button("➕ Ajouter à la liste", use_container_width=True):
         if s_name:
             st.session_state.cart.append({
                 "Désignation": s_name, "Unité": s_unit, "Qte": s_qte, "P.U HT": s_price, "Total HT": s_qte * s_price
@@ -249,15 +198,23 @@ if page == "📄 Devis / Facture":
             st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- الجزء 2: معلومات الفاتورة والزبون (Card جانبي) ---
+    # --- الجزء 2: معلومات الزبون (هنا فين كان المشكل) ---
     col_info, col_summary = st.columns([1, 1])
     
     with col_info:
         st.markdown('<div class="main-card">', unsafe_allow_html=True)
         st.markdown('<p class="section-title">👤 Infos Client & Document</p>', unsafe_allow_html=True)
         d_type = st.selectbox("Type", ["DEVIS", "FACTURE"], key="p_type")
-        clients_list = df_c.iloc[:, 1].dropna().tolist() if df_c is not None else ["Client"]
+        
+        # التصحيح: كناخدو العمود رقم 3 (Index 2) اللي فيه "الاسم/الشركة"
+        # ماشي العمود رقم 2 اللي فيه "النوع"
+        if df_c is not None and not df_c.empty:
+            clients_list = df_c.iloc[:, 2].dropna().tolist() # خدينا العمود C
+        else:
+            clients_list = ["No Client Found"]
+            
         s_client = st.selectbox("Client", clients_list, key="p_client")
+        
         last_id = len(df_f) + 1 if df_f is not None else 1
         d_num = st.text_input("N° Document", value=f"D{datetime.now().strftime('%y%m')}{str(last_id).zfill(2)}", key="p_num")
         st.markdown('</div>', unsafe_allow_html=True)
@@ -266,8 +223,7 @@ if page == "📄 Devis / Facture":
         st.markdown('<div class="main-card">', unsafe_allow_html=True)
         st.markdown('<p class="section-title">💰 Récapitulatif</p>', unsafe_allow_html=True)
         total_ht = sum(i['Total HT'] for i in st.session_state.cart)
-        tva = total_ht * 0.20
-        ttc = total_ht + tva
+        ttc = total_ht * 1.20
         
         c1, c2 = st.columns(2)
         c1.metric("Total HT", f"{total_ht:,.2f} DH")
@@ -275,22 +231,8 @@ if page == "📄 Devis / Facture":
         
         if st.session_state.cart:
             if st.button("💾 Enregistrer & PDF", type="primary", use_container_width=True):
-                # (هنا كود الحفظ فـ Sheets و توليد PDF اللي خدمنا عليه قبيلة)
-                st.success("Document enregistré!")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    # --- الجزء 3: عرض السلة (Tableau) ---
-    if st.session_state.cart:
-        st.markdown('<div class="main-card">', unsafe_allow_html=True)
-        st.markdown('<p class="section-title">🛒 Articles Sélectionnés</p>', unsafe_allow_html=True)
-        
-        # تحويل السلة لـ DataFrame لعرضها بشكل نقي
-        df_cart = pd.DataFrame(st.session_state.cart)
-        st.table(df_cart) # أو st.dataframe
-        
-        if st.button("🗑️ Vider le panier"):
-            st.session_state.cart = []
-            st.rerun()
+                # كود الحفظ...
+                st.success("Enregistré!")
         st.markdown('</div>', unsafe_allow_html=True)
 #===================================================================================================================================================
 #style

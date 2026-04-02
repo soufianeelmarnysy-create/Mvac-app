@@ -269,3 +269,100 @@ if page == "📄 Devis / Facture":
                     st.success("✅ تم!")
             except Exception as e:
                 st.error(f"Error: {e}")
+#===================================================================================================================================================
+#style
+#===================================================================================================================================================
+import streamlit as st
+import pandas as pd
+
+# --- 1. تزيين الواجهة بـ CSS (Custom Styling) ---
+st.markdown("""
+    <style>
+    /* خلفية التطبيق */
+    .stApp {
+        background-color: #f8f9fc;
+    }
+    /* ستايل الكارط (Card) */
+    .metric-card {
+        background-color: white;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        border-left: 5px solid #4e73df;
+        margin-bottom: 20px;
+    }
+    .metric-label {
+        font-size: 0.8rem;
+        font-weight: bold;
+        color: #4e73df;
+        text-transform: uppercase;
+    }
+    .metric-value {
+        font-size: 1.5rem;
+        font-weight: bold;
+        color: #5a5c69;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- 2. دالة لرسم "الكارط" بحال اللي فالتصويرة ---
+def style_metric_card(label, value, color="#4e73df"):
+    st.markdown(f"""
+        <div class="metric-card" style="border-left-color: {color};">
+            <div class="metric-label" style="color: {color};">{label}</div>
+            <div class="metric-value">{value}</div>
+        </div>
+    """, unsafe_allow_html=True)
+
+# --- 3. جلب البيانات للحسابات ---
+df_f = load_data("Facturations")
+df_m = load_data("Materiels")
+
+# حساب الأرقام (Dashboard Logic)
+if df_f is not None and not df_f.empty:
+    total_ttc = pd.to_numeric(df_f.iloc[:, 6], errors='coerce').sum()
+    count_factures = len(df_f)
+    # حساب الربح التقريبي أو المبيعات الشهرية هنا
+else:
+    total_ttc, count_factures = 0, 0
+
+# --- 4. عرض الواجهة (Layout) ---
+if page == "📊 Tableau de Bord":
+    st.title("📊 Tableau de Bord (M-VAC)")
+    
+    # السطر الأول: بطاقات المعلومات (Stats)
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        style_metric_card("Chiffre d'Affaires", f"{total_ttc:,.2f} DH", "#4e73df")
+    with col2:
+        style_metric_card("Total Factures", f"{count_factures}", "#1cc88a")
+    with col3:
+        style_metric_card("Stock Valeur", "9,730.00 DH", "#36b9cc")
+    with col4:
+        style_metric_card("Dépenses", "1,400.00 DH", "#e74a3b")
+
+    st.markdown("---")
+
+    # السطر الثاني: جداول وتنبيهات
+    left_col, right_col = st.columns([2, 1])
+
+    with left_col:
+        st.subheader("📈 تطور المبيعات")
+        # هنا ممكن تزيد chart (مثال بسيط)
+        if df_f is not None:
+            chart_data = pd.DataFrame({'Ventes': [2000, 5000, total_ttc]})
+            st.area_chart(chart_data)
+
+    with right_col:
+        st.subheader("⚠️ Stock Critique")
+        with st.container(border=True):
+            # محاكاة للتنبيهات اللي فالتصويرة
+            st.error("Toner: 0 units")
+            st.warning("Câble USB: 2 units")
+            st.info("Routeur: 5 units")
+
+    # السطر الثالث: آخر العمليات
+    st.subheader("📄 آخر الفواتير المسجلة")
+    if df_f is not None:
+        st.dataframe(df_f.tail(5), use_container_width=True)

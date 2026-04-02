@@ -176,83 +176,90 @@ import base64
 if page == "📄 Devis / Facture":
     st.title("📄 Devis / Facture")
     
-    # 1. جلب البيانات من Google Sheets
+    # 1. جلب البيانات
     df_c = load_data("Customers")
     df_m = load_data("Materiels")
     df_f = load_data("Facturations")
 
-    # تهيئة السلة والبيانات المؤقتة في الذاكرة
+    # تهيئة الذاكرة (Session State)
     if 'cart' not in st.session_state: st.session_state.cart = []
-    if 'p_unit' not in st.session_state: st.session_state.p_unit = ""
-    if 'p_price' not in st.session_state: st.session_state.p_price = 0.0
-
-    # دالة الربط التلقائي (معدلة حسب صورة جدول Materiels ديالك)
-    def update_item_details():
+    
+    # --- دالة التحديث التلقائي (معدلة باش تخدم فـ أول لود) ---
+    def sync_details():
         if df_m is not None and not df_m.empty:
             try:
+                # كنقلبو على السلعة اللي كاينا دابا فـ السلكت
                 selected_name = st.session_state.p_item_select
-                item_row = df_m[df_m['السلعة'] == selected_name].iloc[0]
-                # الوحدة كاينا فـ العمود رقم 4 (Index 3)
-                st.session_state.p_unit = str(item_row.iloc[3])
-                # الثمن كاين فـ العمود رقم 6 (Index 5)
-                raw_price = item_row.iloc[5]
-                st.session_state.p_price = float(raw_price) if raw_price else 0.0
+                mask = df_m.iloc[:, 2] == selected_name
+                if mask.any():
+                    item_row = df_m[mask].iloc[0]
+                    # تحديث القيم مباشرة فـ الـ session_state
+                    st.session_state.p_unit = str(item_row.iloc[3]) if pd.notnull(item_row.iloc[3]) else ""
+                    st.session_state.p_price = float(item_row.iloc[5]) if pd.notnull(item_row.iloc[5]) else 0.0
             except:
                 pass
 
-    # --- الجزء 1: معلومات الوثيقة ---
-    with st.container(border=True):
-        c1, c2, c3 = st.columns([1, 2, 1])
-        d_type = c1.selectbox("النوع", ["DEVIS", "FACTURE"], key="p_type")
-        
-        list_clients = df_c['الاسم/الشركة'].tolist() if df_c is not None else ["Client Standard"]
-        s_client = c2.selectbox("اختار الزبون", list_clients, key="p_client")
-        
-        last_id = len(df_f) + 1 if df_f is not None else 1
-        d_num = c3.text_input("رقم الوثيقة", value=f"D{datetime.now().strftime('%y%m')}{str(last_id).zfill(2)}", key="p_num")
+    # لستة السلع (ضرورية باش نعرفو أول عنصر)
+    items_list = df_m.iloc[:, 2].dropna().tolist() if df_m is not None else []
 
-    # --- الجزء 2: إضافة السلع للسلة ---
+    # تصحيح الـ Load الأول: يلا كانت الذاكرة خاوية، نعمروها بأول سلعة فـ اللستة
+    if 'p_unit' not in st.session_state or st.session_state.p_unit == "":
+        if items_list:
+            first_item = df_m[df_m.iloc[:, 2] == items_list[0]].iloc[0]
+            st.session_state.p_unit = str(first_item.iloc[3])
+            st.session_state.p_price = float(first_item.iloc[5])
+
+    # --- PART 1: إضافة السلعة (هي الأولى دابا) ---
     with st.container(border=True):
         st.subheader("📦 إضافة السلع")
         i1, i2, i3, i4 = st.columns([3, 1, 1, 1])
         
-        list_items = df_m['السلعة'].tolist() if df_m is not None else []
-        s_name = i1.selectbox("اختار السلعة", list_items, key="p_item_select", on_change=update_item_details)
+        # السلكت كيعيط لـ sync_details فاش كيتبدل
+        s_name = i1.selectbox("اختار السلعة", items_list, key="p_item_select", on_change=sync_details)
         
+        # الحقول كياخدو القيمة من session_state مباشرة
         s_unit = i2.text_input("الوحدة", key="p_unit")
-        s_qte = i3.number_input("الكمية", min_value=0.1, value=1.0, key="p_qte")
+        s_qte = i3.number_input("الكمية", min_value=0.1, value=1.0, step=1.0)
         s_price = i4.number_input("الثمن HT", key="p_price")
 
         if st.button("➕ إضافة للسلة", use_container_width=True):
-            st.session_state.cart.append({
-                "Désignation": s_name, "Unité": s_unit, "Qte": s_qte, "P.U HT": s_price, "Total HT": s_qte * s_price
-            })
-            st.rerun()
+            if s_name:
+                st.session_state.cart.append({
+                    "Désignation": s_name, "Unité": s_unit, "Qte": s_qte, "P.U HT": s_price, "Total HT": s_qte * s_price
+                })
+                st.rerun()
 
-    # --- الجزء 3: مراجعة السلة والحذف ---
+    # --- PART 2: معلومات الوثيقة (الزبون والرقم) ---
+    with st.expander("📝 معلومات الفاتورة / الزبون", expanded=True):
+        c1, c2, c3 = st.columns([1, 2, 1])
+        d_type = c1.selectbox("النوع", ["DEVIS", "FACTURE"], key="p_type")
+        clients_list = df_c.iloc[:, 1].dropna().tolist() if df_c is not None else ["Client"]
+        s_client = c2.selectbox("الزبون", clients_list, key="p_client")
+        last_id = len(df_f) + 1 if df_f is not None else 1
+        d_num = c3.text_input("رقم الوثيقة", value=f"D{datetime.now().strftime('%y%m')}{str(last_id).zfill(2)}", key="p_num")
+
+    # --- PART 3: السلة والعمليات ---
     if st.session_state.cart:
         st.markdown("---")
+        st.subheader("🛒 السلع المضافة")
         for idx, item in enumerate(st.session_state.cart):
-            col_txt, col_btn = st.columns([9, 1])
-            col_txt.info(f"🔹 **{item['Désignation']}** ({item['Qte']} {item['Unité']}) | Total: {item['Total HT']:.2f} DH")
-            if col_btn.button("❌", key=f"del_{idx}"):
+            col_txt, col_del = st.columns([9, 1])
+            col_txt.info(f"✅ **{item['Désignation']}** | {item['Qte']} {item['Unité']} x {item['P.U HT']} = **{item['Total HT']:.2f} DH**")
+            if col_del.button("❌", key=f"del_{idx}"):
                 st.session_state.cart.pop(idx)
                 st.rerun()
 
         total_ht = sum(i['Total HT'] for i in st.session_state.cart)
         tva = total_ht * 0.20
         ttc = total_ht + tva
-        st.subheader(f"Total TTC: {ttc:,.2f} DH")
+        st.success(f"### Total TTC: {ttc:,.2f} DH")
 
-        # --- الجزء 4: التسجيل (9 أعمدة) + PDF باللوغو الصحيح ---
+        # تسجيل وحفظ
         if st.button("💾 تسجيل الوثيقة وتحميل PDF 📥", type="primary", use_container_width=True):
             try:
-                # تجميع السلع للعمود 9
-                summary = ", ".join([f"{i['Désignation']} (x{i['Qte']})" for i in st.session_state.cart])
-                
-                # السطر بـ 9 أعمدة
+                articles_summary = ", ".join([f"{i['Désignation']} (x{i['Qte']})" for i in st.session_state.cart])
                 new_entry = [str(last_id), datetime.now().strftime("%d/%m/%Y"), d_num, s_client, 
-                             f"{total_ht:.2f}", f"{tva:.2f}", f"{ttc:.2f}", d_type, summary]
+                             f"{total_ht:.2f}", f"{tva:.2f}", f"{ttc:.2f}", d_type, articles_summary]
                 
                 new_row_df = pd.DataFrame([new_entry], columns=df_f.columns)
                 if save_data("Facturations", pd.concat([df_f, new_row_df], ignore_index=True)):
@@ -260,30 +267,19 @@ if page == "📄 Devis / Facture":
                     # إنشاء PDF
                     pdf = FPDF()
                     pdf.add_page()
-                    
-                    # اللوغو (استخدام السمية الصحيحة mvac_logo.png)
                     try: pdf.image('mvac_logo.png', 10, 8, 35)
                     except: pass
                     
-                    pdf.set_font("Helvetica", 'B', 16)
-                    pdf.set_text_color(0, 102, 204)
-                    pdf.set_xy(50, 15)
-                    pdf.cell(0, 10, "STE M-VAC SARL AU", ln=True)
+                    pdf.set_font("Arial", 'B', 16); pdf.set_text_color(0, 102, 204)
+                    pdf.set_xy(50, 15); pdf.cell(0, 10, "STE M-VAC SARL AU", ln=True)
                     
-                    pdf.set_font("Helvetica", '', 10)
-                    pdf.set_text_color(0, 0, 0)
-                    pdf.set_xy(140, 30)
-                    pdf.cell(60, 7, f"Date: {datetime.now().strftime('%d/%m/%Y')}", ln=True, align='R')
-                    pdf.set_font("Helvetica", 'B', 12)
-                    pdf.cell(60, 7, f"{d_type} N: {d_num}", ln=True, align='R')
+                    pdf.set_font("Arial", 'B', 12); pdf.set_text_color(0, 0, 0)
+                    pdf.set_xy(140, 35); pdf.cell(60, 7, f"{d_type} N: {d_num}", ln=True, align='R')
                     
-                    pdf.set_xy(10, 50)
-                    pdf.cell(0, 10, f"Client: {s_client}", ln=True)
+                    pdf.set_xy(10, 55); pdf.cell(0, 10, f"Client: {s_client}", ln=True)
                     
-                    # جدول PDF
-                    pdf.ln(10)
-                    pdf.set_fill_color(200, 220, 255)
-                    pdf.cell(90, 10, "Designation", 1, 0, 'L', True)
+                    pdf.ln(10); pdf.set_fill_color(230, 230, 230)
+                    pdf.cell(90, 10, "Designation", 1, 0, 'C', True)
                     pdf.cell(20, 10, "U", 1, 0, 'C', True)
                     pdf.cell(20, 10, "Qte", 1, 0, 'C', True)
                     pdf.cell(30, 10, "P.U HT", 1, 0, 'C', True)
@@ -296,25 +292,15 @@ if page == "📄 Devis / Facture":
                         pdf.cell(30, 8, f"{i['P.U HT']:.2f}", 1, 0, 'C')
                         pdf.cell(30, 8, f"{i['Total HT']:.2f}", 1, 1, 'C')
                     
-                    pdf.ln(5)
-                    pdf.cell(130, 8, "TOTAL HT", 0, 0, 'R')
-                    pdf.cell(30, 8, f"{total_ht:.2f}", 1, 1, 'C')
-                    pdf.cell(130, 8, "TVA 20%", 0, 0, 'R')
-                    pdf.cell(30, 8, f"{tva:.2f}", 1, 1, 'C')
-                    pdf.set_font("Helvetica", 'B', 12)
-                    pdf.cell(130, 10, "TOTAL TTC (DH)", 0, 0, 'R')
-                    pdf.cell(30, 10, f"{ttc:.2f}", 1, 1, 'C', True)
+                    pdf.ln(5); pdf.set_font("Arial", 'B', 12)
+                    pdf.cell(130, 10, "TOTAL TTC (DH):", 0, 0, 'R')
+                    pdf.cell(60, 10, f"{ttc:,.2f}", 1, 1, 'C', True)
 
-                    # رابط التحميل
-                    pdf_bytes = pdf.output()
-                    if isinstance(pdf_bytes, str): pdf_bytes = pdf_bytes.encode('latin-1')
+                    pdf_bytes = pdf.output(dest='S').encode('latin-1')
                     b64 = base64.b64encode(pdf_bytes).decode()
-                    href = f'<a href="data:application/pdf;base64,{b64}" download="{d_num}.pdf" style="text-decoration:none;"><button style="width:100%;background-color:#28a745;color:white;padding:12px;border-radius:8px;border:none;cursor:pointer;font-weight:bold;">📥 تحميل {d_type} PDF</button></a>'
+                    href = f'<a href="data:application/pdf;base64,{b64}" download="{d_num}.pdf" style="text-decoration:none;"><button style="width:100%;background-color:#28a745;color:white;padding:15px;border-radius:10px;border:none;cursor:pointer;font-weight:bold;">📥 تحميل الملف الآن</button></a>'
                     st.markdown(href, unsafe_allow_html=True)
-                    
-                    st.session_state.cart = [] # مسح السلة
-                    st.success("✅ تم التسجيل بنجاح!")
-                else:
-                    st.error("❌ فشل التسجيل في Sheets")
+                    st.session_state.cart = []
+                    st.success("✅ تم تسجيل الفاتورة بنجاح!")
             except Exception as e:
                 st.error(f"⚠️ خطأ: {e}")

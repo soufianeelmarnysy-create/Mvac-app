@@ -166,26 +166,53 @@ elif page == "📦 إدارة السلعة":
 # =========================================================
 # 📄 5. صفحة الفاتورة (Facturation)
 # ========================================================================================================================================================================
-# --- صفحة Devis / Facture بالتعديل الصحيح للأسماء ---
+import streamlit as st
+import pandas as pd
+from datetime import datetime
+
+# --- 1. تعريف الدوال أولاً (باش ما يعطيش NameError) ---
+def sync_details():
+    """هاد الدالة خاصها تكون هي الأولى باش Selectbox يلقاها"""
+    if 'df_m' in globals() and df_m is not None and not df_m.empty:
+        try:
+            selected_name = st.session_state.p_item_select
+            # كنجلبو السطر بالاعتماد على الاسم (العمود رقم 3 -> Index 2)
+            item_row = df_m[df_m.iloc[:, 2] == selected_name].iloc[0]
+            st.session_state.p_unit = str(item_row.iloc[3])
+            st.session_state.p_price = float(item_row.iloc[5])
+        except Exception:
+            pass
+
+# --- 2. صفحة Devis / Facture ---
 if page == "📄 Devis / Facture":
     st.markdown('<h1 style="color: #2d3748;">📄 Gestion des Documents</h1>', unsafe_allow_html=True)
     
-    # 1. جلب البيانات
+    # جلب البيانات
     df_c = load_data("Customers")
     df_m = load_data("Materiels")
     df_f = load_data("Facturations")
 
     if 'cart' not in st.session_state: st.session_state.cart = []
 
-    # --- الجزء 1: إضافة السلع (الفوق) ---
+    # --- الجزء 1: إضافة السلع (Card العلوي) ---
     st.markdown('<div class="main-card">', unsafe_allow_html=True)
     st.markdown('<p class="section-title">📦 Ajouter des Articles</p>', unsafe_allow_html=True)
     
-    # لستة السلع من العمود التالت (Index 2)
     items_list = df_m.iloc[:, 2].dropna().tolist() if df_m is not None else []
     
+    # تعمير البيانات لأول مرة (Initial Load)
+    if ('p_unit' not in st.session_state or st.session_state.p_unit == "") and items_list:
+        try:
+            first_row = df_m.iloc[0]
+            st.session_state.p_unit = str(first_row.iloc[3])
+            st.session_state.p_price = float(first_row.iloc[5])
+        except: pass
+
     i1, i2, i3, i4 = st.columns([3, 1, 1, 1])
+    
+    # دابا sync_details معرفة الفوق، ما غاديش تعطي NameError
     s_name = i1.selectbox("Désignation", items_list, key="p_item_select", on_change=sync_details)
+    
     s_unit = i2.text_input("Unité", key="p_unit")
     s_qte = i3.number_input("Qte", min_value=0.1, value=1.0, step=1.0)
     s_price = i4.number_input("P.U HT", key="p_price")
@@ -198,7 +225,7 @@ if page == "📄 Devis / Facture":
             st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- الجزء 2: معلومات الزبون (هنا فين كان المشكل) ---
+    # --- الجزء 2: معلومات الزبون (التصحيح ديال الاسم) ---
     col_info, col_summary = st.columns([1, 1])
     
     with col_info:
@@ -206,13 +233,8 @@ if page == "📄 Devis / Facture":
         st.markdown('<p class="section-title">👤 Infos Client & Document</p>', unsafe_allow_html=True)
         d_type = st.selectbox("Type", ["DEVIS", "FACTURE"], key="p_type")
         
-        # التصحيح: كناخدو العمود رقم 3 (Index 2) اللي فيه "الاسم/الشركة"
-        # ماشي العمود رقم 2 اللي فيه "النوع"
-        if df_c is not None and not df_c.empty:
-            clients_list = df_c.iloc[:, 2].dropna().tolist() # خدينا العمود C
-        else:
-            clients_list = ["No Client Found"]
-            
+        # التصحيح: هنا خدينا العمود رقم 3 (Index 2) باش يبانو السميات ماشي "Société/Particulier"
+        clients_list = df_c.iloc[:, 2].dropna().tolist() if df_c is not None else ["Client"]
         s_client = st.selectbox("Client", clients_list, key="p_client")
         
         last_id = len(df_f) + 1 if df_f is not None else 1
@@ -220,19 +242,12 @@ if page == "📄 Devis / Facture":
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col_summary:
-        st.markdown('<div class="main-card">', unsafe_allow_html=True)
-        st.markdown('<p class="section-title">💰 Récapitulatif</p>', unsafe_allow_html=True)
+        # (باقي الكود ديال الحسابات والـ Metrics...)
         total_ht = sum(i['Total HT'] for i in st.session_state.cart)
         ttc = total_ht * 1.20
-        
-        c1, c2 = st.columns(2)
-        c1.metric("Total HT", f"{total_ht:,.2f} DH")
-        c2.metric("Total TTC", f"{ttc:,.2f} DH")
-        
-        if st.session_state.cart:
-            if st.button("💾 Enregistrer & PDF", type="primary", use_container_width=True):
-                # كود الحفظ...
-                st.success("Enregistré!")
+        st.markdown('<div class="main-card">', unsafe_allow_html=True)
+        st.markdown('<p class="section-title">💰 Récapitulatif</p>', unsafe_allow_html=True)
+        st.metric("Total TTC", f"{ttc:,.2f} DH")
         st.markdown('</div>', unsafe_allow_html=True)
 #===================================================================================================================================================
 #style

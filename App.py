@@ -166,93 +166,172 @@ elif page == "📦 إدارة السلعة":
 # =========================================================
 # 📄 5. صفحة الفاتورة (Facturation)
 # ========================================================================================================================================================================
-elif page == "📄 Devis / Facture":
+import streamlit as st
+import pandas as pd
+from fpdf import FPDF
+from datetime import datetime
+import base64
+
+# --- صفحة Devis / Facture ---
+if page == "📄 Devis / Facture":
     st.title("📄 Devis / Facture")
     
-    # 1. جلب البيانات (مع معالجة حالة الخواء)
+    # 1. جلب البيانات من Google Sheets
     df_c = load_data("Customers")
     df_m = load_data("Materiels")
     df_f = load_data("Facturations")
 
-    # تهيئة السلة في Session State
+    # تهيئة السلة والبيانات المؤقتة في الذاكرة
     if 'cart' not in st.session_state: st.session_state.cart = []
     if 'p_unit' not in st.session_state: st.session_state.p_unit = ""
     if 'p_price' not in st.session_state: st.session_state.p_price = 0.0
 
-    # دالة تحديث الثمن والوحدة (كتخدم غير فاش تختار السلعة)
-    def sync_data():
+    # دالة الربط التلقائي للثمن والوحدة
+    def sync_item_data():
         if df_m is not None and not df_m.empty:
-            sel = st.session_state.p_item_select
-            row = df_m[df_m['السلعة'] == sel].iloc[0]
-            st.session_state.p_unit = str(row['الوحدة'])
-            st.session_state.p_price = float(row['ثمن الوحدة'])
+            selected_name = st.session_state.p_item_select
+            item_row = df_m[df_m['السلعة'] == selected_name].iloc[0]
+            st.session_state.p_unit = str(item_row['الوحدة'])
+            # التأكد من اسم العمود 'ثمن الوحدة'
+            price_col = 'ثمن الوحدة' if 'ثمن الوحدة' in item_row else item_row.index[2] 
+            st.session_state.p_price = float(item_row[price_col])
 
-    # --- الجزء 1: واجهة اختيار الكليان والوثيقة ---
+    # --- الجزء 1: معلومات الوثيقة ---
     with st.container(border=True):
         c1, c2, c3 = st.columns([1, 2, 1])
         d_type = c1.selectbox("النوع", ["DEVIS", "FACTURE"], key="p_type")
         
-        # لستة الكليان (إيلا خاوية كيعطيك خيار يدوي)
-        list_clients = df_c['الاسم/الشركة'].tolist() if df_c is not None else ["كليان جديد"]
+        list_clients = df_c['الاسم/الشركة'].tolist() if df_c is not None else ["Client Standard"]
         s_client = c2.selectbox("اختار الزبون", list_clients, key="p_client")
         
-        # رقم الوثيقة
-        last_num = len(df_f) + 1 if df_f is not None else 1
-        d_num = c3.text_input("رقم الوثيقة", value=f"{datetime.now().strftime('%y')}/{str(last_num).zfill(3)}", key="p_num")
+        last_id = len(df_f) + 1 if df_f is not None else 1
+        d_num = c3.text_input("رقم الوثيقة", value=f"D{datetime.now().strftime('%y%m')}{str(last_id).zfill(3)}", key="p_num")
 
-    # --- الجزء 2: إضافة السلعة (المنطقة الحساسة) ---
+    # --- الجزء 2: إضافة السلع للسلة (بدون تسجيل) ---
     with st.container(border=True):
-        st.subheader("📦 إضافة السلع للسلة")
+        st.subheader("📦 إضافة السلع")
         i1, i2, i3, i4 = st.columns([3, 1, 1, 1])
         
-        # لستة السلع
-        list_items = df_m['السلعة'].tolist() if df_m is not None and not df_m.empty else []
-        
-        if not list_items:
-            st.warning("⚠️ جدول السلع خاوي فـ Google Sheets!")
-            s_name = i1.text_input("اسم السلعة (يدوي)")
-        else:
-            s_name = i1.selectbox("اختار السلعة", list_items, key="p_item_select", on_change=sync_data)
+        list_items = df_m['السلعة'].tolist() if df_m is not None else []
+        s_name = i1.selectbox("اختار السلعة", list_items, key="p_item_select", on_change=sync_item_data)
         
         s_unit = i2.text_input("الوحدة", key="p_unit")
-        s_qte = i3.number_input("الكمية", min_value=1.0, value=1.0, key="p_qte")
+        s_qte = i3.number_input("الكمية", min_value=0.1, value=1.0, step=1.0, key="p_qte")
         s_price = i4.number_input("الثمن HT", key="p_price")
 
-        if st.button("➕ إضافة للجدول المؤقت", use_container_width=True):
+        if st.button("➕ إضافة للسلة", use_container_width=True):
             st.session_state.cart.append({
                 "Désignation": s_name, "Unité": s_unit, "Qte": s_qte, "P.U HT": s_price, "Total HT": s_qte * s_price
             })
             st.rerun()
 
-    # --- الجزء 3: مراجعة وحذف السلعة ---
+    # --- الجزء 3: مراجعة السلة والحذف ---
     if st.session_state.cart:
-        st.markdown("### 🛒 السلع المضافة")
+        st.markdown("### 🛒 مراجعة السلع المضافة")
+        df_display = pd.DataFrame(st.session_state.cart)
+        
+        # عرض السلعة مع زر الحذف لكل سطر
         for idx, item in enumerate(st.session_state.cart):
-            col_txt, col_btn = st.columns([8, 2])
-            col_txt.info(f"**{item['Désignation']}** | {item['Qte']} {item['Unité']} x {item['P.U HT']} = **{item['Total HT']:.2f} DH**")
-            if col_btn.button(f"حذف ❌", key=f"del_{idx}"):
+            col_txt, col_btn = st.columns([9, 1])
+            col_txt.write(f"🔹 **{item['Désignation']}** ({item['Qte']} {item['Unité']}) | Total: {item['Total HT']:.2f} DH")
+            if col_btn.button("❌", key=f"del_{idx}"):
                 st.session_state.cart.pop(idx)
                 st.rerun()
 
         total_ht = sum(i['Total HT'] for i in st.session_state.cart)
         tva = total_ht * 0.20
         ttc = total_ht + tva
-        st.write(f"**Total HT:** {total_ht:.2f} | **TVA:** {tva:.2f} | **Total TTC:** {ttc:.2f}")
+        
+        st.divider()
+        st.subheader(f"Total TTC: {ttc:,.2f} DH")
 
-        # --- الجزء 4: الزر النهائي (Save + PDF) ---
+        # --- الجزء 4: التسجيل النهائي + PDF باللوغو ---
         if st.button("💾 تسجيل الوثيقة وتحميل PDF 📥", type="primary", use_container_width=True):
-            # 1. محاولة التسجيل
             try:
-                new_row = [str(last_num), datetime.now().strftime("%d/%m/%Y"), d_num, s_client, str(total_ht), str(tva), str(ttc)]
-                # التأكد من وجود DataFrame صالح للتسجيل
-                if df_f is not None:
-                    final_df = pd.concat([df_f, pd.DataFrame([new_row], columns=df_f.columns)], ignore_index=True)
-                    if save_data("Facturations", final_df):
-                        st.success("✅ تم الحفظ بنجاح!")
-                        # 2. كود الـ PDF (نفس الكود السابق مع اللوغو)
-                        # ... (توليد وتحميل PDF) ...
-                        st.session_state.cart = [] # مسح السلة
-                    else:
-                        st.error("❌ فشل التسجيل فـ Google Sheets")
+                # 1. تجميع تفاصيل السلع للعمود رقم 9
+                items_summary = ", ".join([f"{i['Désignation']} (x{i['Qte']})" for i in st.session_state.cart])
+                
+                # 2. إعداد السطر بـ 9 أعمدة (حل مشكلة Error: 9 columns)
+                new_entry = [
+                    str(last_id), 
+                    datetime.now().strftime("%d/%m/%Y"), 
+                    d_num, 
+                    s_client, 
+                    f"{total_ht:.2f}", 
+                    f"{tva:.2f}", 
+                    f"{ttc:.2f}", 
+                    d_type, 
+                    items_summary
+                ]
+                
+                # 3. التسجيل في Sheets
+                new_row_df = pd.DataFrame([new_entry], columns=df_f.columns)
+                updated_df = pd.concat([df_f, new_row_df], ignore_index=True)
+                
+                if save_data("Facturations", updated_df):
+                    st.success("✅ تم التسجيل بنجاح!")
+                    
+                    # 4. توليد PDF احترافي
+                    pdf = FPDF()
+                    pdf.add_page()
+                    
+                    # الهيدر (اللوغو والستيل)
+                    try:
+                        pdf.image('logo.png', 10, 8, 40) 
+                    except: pass
+                    
+                    pdf.set_font("Helvetica", 'B', 16)
+                    pdf.set_text_color(0, 128, 128) # Teal
+                    pdf.set_xy(60, 10)
+                    pdf.cell(0, 10, "STE M-VAC SARL AU", ln=True)
+                    
+                    pdf.set_font("Helvetica", '', 10)
+                    pdf.set_text_color(0, 0, 0)
+                    pdf.set_xy(140, 30)
+                    pdf.cell(60, 7, f"Date: {datetime.now().strftime('%d/%m/%Y')}", ln=True, align='R')
+                    pdf.set_font("Helvetica", 'B', 12)
+                    pdf.cell(60, 7, f"{d_type} N: {d_num}", ln=True, align='R')
+                    
+                    pdf.set_xy(10, 50)
+                    pdf.cell(0, 10, f"Client: {s_client}", ln=True)
+                    
+                    # جدول السلع في PDF
+                    pdf.ln(5)
+                    pdf.set_fill_color(0, 128, 128)
+                    pdf.set_text_color(255, 255, 255)
+                    pdf.cell(90, 10, "Designation", 1, 0, 'C', True)
+                    pdf.cell(20, 10, "Unite", 1, 0, 'C', True)
+                    pdf.cell(20, 10, "Qte", 1, 0, 'C', True)
+                    pdf.cell(30, 10, "P.U HT", 1, 0, 'C', True)
+                    pdf.cell(30, 10, "Total", 1, 1, 'C', True)
+                    
+                    pdf.set_text_color(0, 0, 0)
+                    for i in st.session_state.cart:
+                        pdf.cell(90, 8, str(i['Désignation']), 1)
+                        pdf.cell(20, 8, str(i['Unité']), 1, 0, 'C')
+                        pdf.cell(20, 8, str(i['Qte']), 1, 0, 'C')
+                        pdf.cell(30, 8, f"{i['P.U HT']:.2f}", 1, 0, 'C')
+                        pdf.cell(30, 8, f"{i['Total HT']:.2f}", 1, 1, 'C')
+                    
+                    # المجاميع
+                    pdf.ln(5)
+                    pdf.cell(130, 8, "TOTAL HT", 0, 0, 'R')
+                    pdf.cell(30, 8, f"{total_ht:.2f}", 1, 1, 'C')
+                    pdf.cell(130, 8, "TVA 20%", 0, 0, 'R')
+                    pdf.cell(30, 8, f"{tva:.2f}", 1, 1, 'C')
+                    pdf.set_font("Helvetica", 'B', 11)
+                    pdf.cell(130, 10, "TOTAL TTC (DH)", 0, 0, 'R')
+                    pdf.cell(30, 10, f"{ttc:.2f}", 1, 1, 'C')
+                    
+                    # التحميل
+                    pdf_bytes = pdf.output()
+                    if isinstance(pdf_bytes, str): pdf_bytes = pdf_bytes.encode('latin-1')
+                    b64 = base64.b64encode(pdf_bytes).decode()
+                    href = f'<a href="data:application/pdf;base64,{b64}" download="{d_num}.pdf" style="text-decoration:none;"><button style="width:100%;background-color:#2e7d32;color:white;padding:15px;border-radius:10px;border:none;cursor:pointer;font-weight:bold;">📥 تحميل ملف PDF الآن</button></a>'
+                    st.markdown(href, unsafe_allow_html=True)
+                    
+                    st.session_state.cart = [] # مسح السلة
+                else:
+                    st.error("❌ فشل التسجيل في Google Sheets.")
             except Exception as e:
-                st.error(f"Error: {e}")
+                st.error(f"⚠️ خطأ: {e}")

@@ -172,112 +172,113 @@ from fpdf import FPDF
 from datetime import datetime
 import base64
 
-# --- 1. الدوال المساعدة (إصلاح الـ PDF و الـ Sync) ---
-def generate_pdf_link(pdf, filename):
-    try:
-        pdf_output = pdf.output()
-        pdf_bytes = pdf_output.encode('latin-1') if isinstance(pdf_output, str) else pdf_output
-        b64 = base64.b64encode(pdf_bytes).decode()
-        return f'''<a href="data:application/pdf;base64,{b64}" download="{filename}" style="text-decoration:none;">
-                <button style="width:100%; background-color:#28a745; color:white; padding:12px; border-radius:8px; border:none; cursor:pointer;">📥 Télécharger le PDF</button></a>'''
-    except Exception as e:
-        return f"Erreur PDF: {str(e)}"
+# --- 1. إعدادات الـ PDF الاحترافي ---
+class MVAC_PDF(FPDF):
+    def header(self):
+        # اللوغو (تأكد أن الصورة موجودة ف نفس الملف)
+        try: self.image('mvac_logo.png', 10, 8, 33)
+        except: pass
+        self.set_font('Arial', 'B', 15)
+        self.cell(80)
+        self.cell(30, 10, 'M-VAC SARL', 0, 0, 'C')
+        self.ln(20)
 
-def sync_item_details():
-    """تجلب الثمن والوحدة بأمان تام"""
-    if 'df_m' in st.session_state and st.session_state.df_m is not None:
+    def footer(self):
+        self.set_y(-15)
+        self.set_font('Arial', 'I', 8)
+        self.cell(0, 10, 'M-VAC SARL - ICE: 00000000 - RC: 12345 - Adresse: Votre Adresse Ici', 0, 0, 'C')
+
+# --- 2. دالة البحث والمخزون (المرحلة 2) ---
+def sync_with_stock():
+    if 'p_item_select' in st.session_state:
+        sel = st.session_state.p_item_select
+        df = st.session_state.df_m
         try:
-            sel = st.session_state.p_item_select
-            df = st.session_state.df_m
-            # التأكد من وجود الأعمدة (Designation=2, Unit=3, Price=5)
-            if len(df.columns) >= 6:
-                row = df[df.iloc[:, 2] == sel].iloc[0]
-                st.session_state.p_unit = str(row.iloc[3])
-                st.session_state.p_price = float(row.iloc[5])
+            # كنقلبو ف العمود 3 (Index 2)
+            item_row = df[df.iloc[:, 2] == sel].iloc[0]
+            st.session_state.p_unit = str(item_row.iloc[3])
+            st.session_state.p_price = float(item_row.iloc[5])
+            # نفترض أن الـ Stock موجود ف العمود رقم 7 (Index 6)
+            st.session_state.p_stock = float(item_row.iloc[6]) if len(item_row) > 6 else 0
         except: pass
 
-# --- 2. الستايل الأصلي (M-VAC Style) ---
-st.markdown("""
-    <style>
-    .main-card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px; }
-    [data-testid="stMetric"] { background: #f8f9fc; border-left: 5px solid #4e73df; padding: 10px; border-radius: 5px; }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- 3. الصفحة الرئيسية ---
+# --- 3. واجهة البرنامج ---
 if page == "📄 Devis / Facture":
-    st.title("📄 Création de Document")
-
-    # تحميل البيانات
+    st.title("📄 Système de Facturation M-VAC")
+    
     df_c = load_data("Customers")
     df_m = load_data("Materiels")
     df_f = load_data("Facturations")
     st.session_state.df_m = df_m
 
-    if 'cart' not in st.session_state: st.session_state.cart = []
-
-    # --- الجزء 1: إضافة السلعة (محمي من IndexError) ---
-    st.markdown('<div class="main-card">', unsafe_allow_html=True)
-    st.subheader("📦 Ajouter des Articles")
-    
-    # حماية العمود رقم 3 (Désignation)
-    items_list = []
-    if df_m is not None and not df_m.empty and len(df_m.columns) >= 3:
-        items_list = df_m.iloc[:, 2].dropna().tolist()
-    else:
-        st.warning("⚠️ مشكل فـ جدول Materiels: تأكد بلي العمود C فيه سميات السلع.")
-
-    col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
-    s_name = col1.selectbox("Désignation", items_list, key="p_item_select", on_change=sync_item_details)
-    s_unit = col2.text_input("Unité", key="p_unit")
-    s_qte = col3.number_input("Qté", min_value=0.1, value=1.0)
-    s_price = col4.number_input("P.U HT", key="p_price", format="%.2f")
-
-    if st.button("➕ Ajouter à la liste", use_container_width=True):
-        if s_name:
-            st.session_state.cart.append({
-                "Désignation": s_name, "Unité": s_unit, "Qte": s_qte, "P.U HT": s_price, "Total HT": s_qte * s_price
-            })
-            st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # --- الجزء 2: الزبون والحسابات ---
-    c_l, c_r = st.columns(2)
-    with c_l:
-        st.markdown('<div class="main-card">', unsafe_allow_html=True)
-        d_type = st.selectbox("Type", ["DEVIS", "FACTURE"])
-        # حماية عمود الزبناء (Index 2)
-        clients = ["Client Standard"]
-        if df_c is not None and not df_c.empty and len(df_c.columns) >= 3:
-            clients = df_c.iloc[:, 2].dropna().tolist()
-        s_client = st.selectbox("Client", clients)
-        d_num = st.text_input("Référence", value=f"REF-{datetime.now().strftime('%d%H%M')}")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    with c_r:
-        st.markdown('<div class="main-card">', unsafe_allow_html=True)
-        total_ht = sum(float(item['Total HT']) for item in st.session_state.cart)
-        ttc = total_ht * 1.20
-        st.metric("TOTAL TTC (DH)", f"{ttc:,.2f}")
+    # --- المرحلة 2: اختيار السلعة ومعرفة الـ Stock ---
+    with st.container():
+        st.subheader("📦 Recherche & Stock")
+        items = df_m.iloc[:, 2].dropna().tolist() if df_m is not None else []
+        col_s1, col_s2 = st.columns([3, 1])
+        s_name = col_s1.selectbox("Article", items, key="p_item_select", on_change=sync_with_stock)
         
-        if st.session_state.cart:
-            if st.button("💾 Valider & Enregistrer", type="primary", use_container_width=True):
-                # توليد PDF بسيط
-                pdf = FPDF()
-                pdf.add_page()
-                pdf.set_font("Arial", 'B', 14)
-                pdf.cell(0, 10, f"M-VAC : {d_type} - {d_num}", ln=True, align='C')
-                # ... (باقي كود الـ PDF)
-                
-                st.markdown(generate_pdf_link(pdf, f"{d_num}.pdf"), unsafe_allow_html=True)
-                st.success("✅ Enregistré!")
-        st.markdown('</div>', unsafe_allow_html=True)
+        # عرض حالة المخزون
+        stock_val = st.session_state.get('p_stock', 0)
+        col_s2.metric("Stock Actuel", f"{stock_val}")
 
-    # --- الجزء 3: عرض الجدول ---
-    if st.session_state.cart:
-        st.markdown('<div class="main-card">', unsafe_allow_html=True)
-        st.table(pd.DataFrame(st.session_state.cart))
-        if st.button("🗑️ Vider"):
-            st.session_state.cart = []
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+        with st.form("add_form"):
+            c1, c2, c3 = st.columns(3)
+            u = c1.text_input("Unité", key="p_unit")
+            p = c2.number_input("Prix HT", key="p_price")
+            q = c3.number_input("Quantité à utiliser", min_value=0.1, value=1.0)
+            
+            if st.form_submit_button("➕ Ajouter au document"):
+                if q > stock_val:
+                    st.error(f"Attention! الكمية المطلوبة ({q}) كثر من اللي كاين ف Stock ({stock_val})")
+                else:
+                    st.session_state.cart.append({"Désignation": s_name, "Unité": u, "Qte": q, "P.U": p, "Total": q*p})
+                    st.rerun()
+
+    # --- المرحلة 3: الحفظ المختصر ---
+    st.divider()
+    c_info, c_calc = st.columns(2)
+    with c_info:
+        client = st.selectbox("Client", df_c.iloc[:, 2].tolist())
+        doc_type = st.radio("Type", ["DEVIS", "FACTURE"], horizontal=True)
+        doc_ref = st.text_input("Numéro", value=f"MVAC-{datetime.now().strftime('%y%m%d%H%M')}")
+
+    with c_calc:
+        total_ht = sum(item['Total'] for item in st.session_state.cart)
+        ttc = total_ht * 1.20
+        st.metric("Total TTC", f"{ttc:,.2f} DH")
+        
+        if st.button("💾 Valider & Générer PDF", type="primary"):
+            # 1. الحفظ ف Sheets (المرحلة 3: معلومات مختصرة فقط)
+            new_row = [len(df_f)+1, datetime.now().strftime("%d/%m/%Y"), doc_ref, client, total_ht, total_ht*0.2, ttc, doc_type]
+            save_data("Facturations", pd.concat([df_f, pd.DataFrame([new_row], columns=df_f.columns[:8])], ignore_index=True))
+            
+            # 2. إنشاء PDF (المرحلة 4)
+            pdf = MVAC_PDF()
+            pdf.add_page()
+            pdf.set_font("Arial", 'B', 12)
+            pdf.cell(0, 10, f"{doc_type} N: {doc_ref}", ln=True)
+            pdf.cell(0, 10, f"Client: {client}", ln=True)
+            
+            # الجدول
+            pdf.set_fill_color(230, 230, 230)
+            pdf.cell(90, 10, "Designation", 1, 0, 'C', True)
+            pdf.cell(30, 10, "Qte", 1, 0, 'C', True)
+            pdf.cell(35, 10, "P.U HT", 1, 0, 'C', True)
+            pdf.cell(35, 10, "Total HT", 1, 1, 'C', True)
+            
+            for item in st.session_state.cart:
+                pdf.cell(90, 10, item['Désignation'], 1)
+                pdf.cell(30, 10, str(item['Qte']), 1, 0, 'C')
+                pdf.cell(35, 10, f"{item['P.U']:.2f}", 1, 0, 'C')
+                pdf.cell(35, 10, f"{item['Total']:.2f}", 1, 1, 'C')
+            
+            pdf.ln(5)
+            pdf.cell(155, 10, "TOTAL TTC (DH):", 0, 0, 'R')
+            pdf.cell(35, 10, f"{ttc:,.2f}", 1, 1, 'C')
+
+            # زر التحميل
+            pdf_bytes = pdf.output()
+            b64 = base64.b64encode(pdf_bytes).decode()
+            st.markdown(f'<a href="data:application/pdf;base64,{b64}" download="{doc_ref}.pdf">📥 Télécharger la Facture</a>', unsafe_allow_html=True)
+            st.success("Document enregistré !")

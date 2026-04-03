@@ -172,167 +172,148 @@ from fpdf import FPDF
 from datetime import datetime
 import base64
 
-# --- 1. إعدادات الصفحة والديزاين (CSS) ---
-st.set_page_config(page_title="M-VAC ERP", layout="wide")
+# --- 1. تسريع التطبيق (Caching) ---
+@st.cache_data(ttl=600)  # كايخبي البيانات 10 دقايق باش ما يبقاش يـ"لوادي" كل مرة
+def get_cached_data(sheet_name):
+    return load_data(sheet_name)
 
+# --- 2. الدوال المساعدة (Helper Functions) ---
+def sync_details():
+    """تحديث الثمن والوحدة فور اختيار السلعة"""
+    if 'df_m' in st.session_state and st.session_state.df_m is not None:
+        try:
+            selected_name = st.session_state.p_item_select
+            df = st.session_state.df_m
+            # البحث ف العمود C (Index 2)
+            item_row = df[df.iloc[:, 2] == selected_name].iloc[0]
+            st.session_state.p_unit = str(item_row.iloc[3])
+            st.session_state.p_price = float(item_row.iloc[5])
+        except: pass
+
+def generate_pdf_link(pdf, filename):
+    """توليد زر التحميل الأخضر"""
+    pdf_bytes = pdf.output(dest='S').encode('latin-1')
+    b64 = base64.b64encode(pdf_bytes).decode()
+    return f'''
+        <a href="data:application/pdf;base64,{b64}" download="{filename}" style="text-decoration:none;">
+            <button style="width:100%; background-color:#28a745; color:white; padding:12px; border-radius:8px; border:none; cursor:pointer; font-weight:bold;">
+                📥 Télécharger le PDF الآن
+            </button>
+        </a>'''
+
+# --- 3. الإعدادات والديزاين ---
 st.markdown("""
     <style>
     .stApp { background-color: #f8f9fc; }
-    [data-testid="stMetric"] {
-        background-color: #ffffff;
-        border-radius: 10px;
-        padding: 15px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        border-left: 5px solid #4e73df;
-    }
-    .main-card {
-        background-color: white;
-        padding: 20px;
-        border-radius: 12px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.07);
-        margin-bottom: 20px;
-    }
-    .section-title {
-        color: #1a202c;
-        font-weight: bold;
-        border-bottom: 2px solid #edf2f7;
-        padding-bottom: 10px;
-        margin-bottom: 15px;
-        font-size: 1.1rem;
-    }
+    .main-card { background: white; padding: 25px; border-radius: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); margin-bottom: 20px; border-top: 5px solid #4e73df; }
+    .section-title { color: #1a202c; font-weight: bold; border-bottom: 2px solid #f1f3f9; padding-bottom: 10px; margin-bottom: 20px; font-size: 1.2rem; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. تعريف الدوال والذاكرة (Session State) ---
-if 'cart' not in st.session_state:
-    st.session_state.cart = []
-
-def sync_details():
-    """تحديث تلقائي للوحدة والثمن من جدول السلع"""
-    if 'df_m' in st.session_state and st.session_state.df_m is not None:
-        df = st.session_state.df_m
-        try:
-            selected_name = st.session_state.p_item_select
-            if len(df.columns) >= 6:
-                item_row = df[df.iloc[:, 2] == selected_name].iloc[0]
-                st.session_state.p_unit = str(item_row.iloc[3])
-                st.session_state.p_price = float(item_row.iloc[5])
-        except: pass
-
-# --- 3. منطق الصفحة: Devis / Facture ---
+# --- 4. صفحة الفواتير ---
 if page == "📄 Devis / Facture":
-    st.markdown('<h1 style="color: #2d3748;">📄 Gestion des Documents</h1>', unsafe_allow_html=True)
-    
-    # تحميل البيانات
-    df_c = load_data("Customers")
-    df_m = load_data("Materiels")
-    df_f = load_data("Facturations")
-    
-    # تخزين df_m في session_state باش تخدم sync_details
-    st.session_state.df_m = df_m
+    st.markdown('<h1 style="color: #2d3748;">📄 Gestion Commerciale</h1>', unsafe_allow_html=True)
 
-    # --- الجزء 1: إضافة السلع (باستعمال FORM لتفادي البلوكاج) ---
+    # تحميل البيانات (بسرعة Cache)
+    df_c = get_cached_data("Customers")
+    df_m = get_cached_data("Materiels")
+    df_f = get_cached_data("Facturations")
+    st.session_state.df_m = df_m # حفظ للـ Sync
+
+    if 'cart' not in st.session_state: st.session_state.cart = []
+
+    # --- PART 1: إضافة السلع (The Action Card) ---
     st.markdown('<div class="main-card">', unsafe_allow_html=True)
-    st.markdown('<p class="section-title">📦 Ajouter des Articles</p>', unsafe_allow_html=True)
+    st.markdown('<p class="section-title">📦 Sélection des Articles</p>', unsafe_allow_html=True)
     
-    items_list = []
-    if df_m is not None and not df_m.empty and len(df_m.columns) >= 3:
-        items_list = df_m.iloc[:, 2].dropna().tolist()
-
-    # تعمير أولي للبيانات
-    if ('p_unit' not in st.session_state or st.session_state.p_unit == "") and items_list:
-        try:
-            if len(df_m.columns) >= 6:
-                first_row = df_m.iloc[0]
-                st.session_state.p_unit = str(first_row.iloc[3])
-                st.session_state.p_price = float(first_row.iloc[5])
-        except: pass
-
-    # الفورم كيجمع البيانات دقة وحدة (كيحل مشكل السطر الرابع)
-    with st.form("add_item_form", clear_on_submit=False):
-        i1, i2, i3, i4 = st.columns([3, 1, 1, 1])
-        s_name = i1.selectbox("Désignation", items_list, key="p_item_select")
-        s_unit = i2.text_input("Unité", key="p_unit")
-        s_qte = i3.number_input("Qte", min_value=0.1, value=1.0, step=1.0)
-        s_price = i4.number_input("P.U HT", key="p_price", format="%.2f")
+    items_list = df_m.iloc[:, 2].dropna().tolist() if df_m is not None else []
+    
+    # Selectbox برا الفورم باش يخدم الـ Sync فالبلاصة
+    s_name = st.selectbox("Désignation de l'article", items_list, key="p_item_select", on_change=sync_details)
+    
+    with st.form("quick_add_form", clear_on_submit=False):
+        c1, c2, c3 = st.columns([1, 1, 1])
+        s_unit = c1.text_input("Unité", key="p_unit")
+        s_qte = c2.number_input("Quantité", min_value=0.1, value=1.0)
+        s_price = c3.number_input("Prix HT (DH)", key="p_price", format="%.2f")
         
-        # زر التحديث (اختياري حيت الـ Selectbox كيدير rerun لراسو)
-        col_btn, _ = st.columns([1, 3])
-        submit_item = st.form_submit_button("➕ Ajouter au Panier", use_container_width=True)
-        
-        if submit_item:
+        if st.form_submit_button("➕ Ajouter au Panier", use_container_width=True):
             if s_name:
                 st.session_state.cart.append({
-                    "Désignation": s_name, 
-                    "Unité": s_unit, 
-                    "Qte": s_qte, 
-                    "P.U HT": s_price, 
-                    "Total HT": s_qte * s_price
+                    "Désignation": s_name, "Unité": s_unit, "Qte": s_qte, "P.U HT": s_price, "Total HT": s_qte * s_price
                 })
                 st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- الجزء 2: معلومات الزبون والملخص ---
-    col_info, col_summary = st.columns([1, 1])
+    # --- PART 2: الزبون والحسابات ---
+    col_l, col_r = st.columns([1, 1])
     
-    with col_info:
+    with col_l:
         st.markdown('<div class="main-card">', unsafe_allow_html=True)
-        st.markdown('<p class="section-title">👤 Client & Document</p>', unsafe_allow_html=True)
-        d_type = st.selectbox("Type Document", ["DEVIS", "FACTURE"])
-        
-        # جلب الأسماء من العمود C (Index 2)
-        clients_list = ["Client Standard"]
-        if df_c is not None and not df_c.empty and len(df_c.columns) >= 3:
-            clients_list = df_c.iloc[:, 2].dropna().tolist()
-            
-        s_client = st.selectbox("Sélectionner Client", clients_list)
+        st.markdown('<p class="section-title">👤 Infos Client</p>', unsafe_allow_html=True)
+        d_type = st.selectbox("Document", ["DEVIS", "FACTURE"])
+        clients_list = df_c.iloc[:, 2].dropna().tolist() if df_c is not None else ["Client Standard"]
+        s_client = st.selectbox("Client", clients_list)
         last_id = len(df_f) + 1 if df_f is not None else 1
-        d_num = st.text_input("N° Document", value=f"D{datetime.now().strftime('%y%m')}{str(last_id).zfill(2)}")
+        d_num = st.text_input("Référence", value=f"REF-{datetime.now().strftime('%y%m')}-{str(last_id).zfill(2)}")
         st.markdown('</div>', unsafe_allow_html=True)
 
-    with col_summary:
+    with col_r:
         st.markdown('<div class="main-card">', unsafe_allow_html=True)
-        st.markdown('<p class="section-title">💰 Récapitulatif Global</p>', unsafe_allow_html=True)
+        st.markdown('<p class="section-title">💰 Montant Total</p>', unsafe_allow_html=True)
         total_ht = sum(i['Total HT'] for i in st.session_state.cart)
-        ttc = total_ht * 1.20 # TVA 20%
+        ttc = total_ht * 1.20
         
-        c1, c2 = st.columns(2)
-        c1.metric("TOTAL HT", f"{total_ht:,.2f} DH")
-        c2.metric("TOTAL TTC", f"{ttc:,.2f} DH")
+        st.metric("Total à payer (TTC)", f"{ttc:,.2f} DH", delta=f"HT: {total_ht:,.2f}")
         
         if st.session_state.cart:
             if st.button("💾 Valider & Générer PDF", type="primary", use_container_width=True):
-                try:
-                    summary = ", ".join([f"{i['Désignation']} (x{i['Qte']})" for i in st.session_state.cart])
-                    new_entry = [str(last_id), datetime.now().strftime("%d/%m/%Y"), d_num, s_client, 
-                                 f"{total_ht:.2f}", f"{total_ht*0.2:.2f}", f"{ttc:.2f}", d_type, summary]
-                    
-                    if save_data("Facturations", pd.concat([df_f, pd.DataFrame([new_entry], columns=df_f.columns)], ignore_index=True)):
-                        # توليد PDF
-                        pdf = FPDF()
-                        pdf.add_page()
-                        try: pdf.image('mvac_logo.png', 10, 8, 33)
-                        except: pass
-                        pdf.set_font("Arial", 'B', 14)
-                        pdf.cell(0, 10, f"{d_type} - {d_num}", ln=True, align='C')
-                        # ... (تكملة كود الـ PDF)
-                        
-                        pdf_bytes = pdf.output(dest='S').encode('latin-1')
-                        b64 = base64.b64encode(pdf_bytes).decode()
-                        st.markdown(f'<a href="data:application/pdf;base64,{b64}" download="{d_num}.pdf" style="text-decoration:none;"><button style="width:100%;background-color:#28a745;color:white;padding:10px;border-radius:5px;border:none;">📥 Télécharger PDF</button></a>', unsafe_allow_html=True)
-                        st.session_state.cart = []
-                        st.success("✅ Enregistré!")
-                except Exception as e:
-                    st.error(f"Erreur: {e}")
+                # 1. إنشاء PDF احترافي
+                pdf = FPDF()
+                pdf.add_page()
+                pdf.set_font("Arial", 'B', 16)
+                pdf.cell(0, 10, f"STE M-VAC : {d_type}", ln=True, align='C')
+                pdf.ln(10)
+                pdf.set_font("Arial", '', 11)
+                pdf.cell(0, 8, f"Client: {s_client} | Date: {datetime.now().strftime('%d/%m/%Y')}", ln=True)
+                pdf.cell(0, 8, f"Réf: {d_num}", ln=True)
+                pdf.ln(5)
+                
+                # Header Table
+                pdf.set_fill_color(78, 115, 223); pdf.set_text_color(255, 255, 255)
+                pdf.cell(90, 10, "Désignation", 1, 0, 'C', True)
+                pdf.cell(20, 10, "Qté", 1, 0, 'C', True)
+                pdf.cell(35, 10, "P.U HT", 1, 0, 'C', True)
+                pdf.cell(35, 10, "Total HT", 1, 1, 'C', True)
+                
+                pdf.set_text_color(0, 0, 0)
+                for item in st.session_state.cart:
+                    pdf.cell(90, 8, str(item['Désignation']), 1)
+                    pdf.cell(20, 8, str(item['Qte']), 1, 0, 'C')
+                    pdf.cell(35, 8, f"{item['P.U HT']:.2f}", 1, 0, 'C')
+                    pdf.cell(35, 8, f"{item['Total HT']:.2f}", 1, 1, 'C')
+                
+                pdf.ln(5)
+                pdf.set_font("Arial", 'B', 12)
+                pdf.cell(145, 10, "NET A PAYER TTC (DH) : ", 0, 0, 'R')
+                pdf.cell(35, 10, f"{ttc:,.2f}", 1, 1, 'C')
+
+                # عرض زر التحميل مباشرة
+                st.markdown(generate_pdf_link(pdf, f"{d_num}.pdf"), unsafe_allow_html=True)
+                
+                # حفظ البيانات فـ Sheets
+                summary = ", ".join([f"{i['Désignation']}" for i in st.session_state.cart])
+                new_row = [str(last_id), datetime.now().strftime("%d/%m/%Y"), d_num, s_client, f"{total_ht:.2f}", f"{total_ht*0.2:.2f}", f"{ttc:.2f}", d_type, summary]
+                save_data("Facturations", pd.concat([df_f, pd.DataFrame([new_row], columns=df_f.columns)], ignore_index=True))
+                st.success("✅ Document enregistré !")
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- الجزء 3: عرض سلة المشتريات ---
+    # --- PART 3: السلة (Table View) ---
     if st.session_state.cart:
         st.markdown('<div class="main-card">', unsafe_allow_html=True)
-        st.markdown('<p class="section-title">🛒 Articles Sélectionnés</p>', unsafe_allow_html=True)
-        df_cart = pd.DataFrame(st.session_state.cart)
-        st.dataframe(df_cart, use_container_width=True, hide_index=True)
-        if st.button("🗑️ Vider le panier", type="secondary"):
+        st.markdown('<p class="section-title">🛒 Détails de la sélection</p>', unsafe_allow_html=True)
+        st.table(pd.DataFrame(st.session_state.cart))
+        if st.button("🗑️ Vider le panier"):
             st.session_state.cart = []
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)

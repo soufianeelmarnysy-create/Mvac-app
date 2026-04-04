@@ -179,18 +179,23 @@ if 'cart' not in st.session_state: st.session_state.cart = []
 def update_gsheets_stock(cart_items):
     df_m = load_data("Materiels")
     if df_m is not None:
-        df_m = df_m.copy()
-        # تحويل عمود الكمية لرقمي بزز لتفادي TypeError
-        df_m.iloc[:, 4] = pd.to_numeric(df_m.iloc[:, 4], errors='coerce').fillna(0)
+        # تحويل الجدول لنسخة مرنة كتقبل كاع الأنواع
+        df_m = df_m.astype(object) 
         
         for item in cart_items:
-            # البحث بالاسم في العمود C
-            idx = df_m[df_m.iloc[:, 2] == item['Désignation']].index
+            # البحث بالاسم في العمود C (Index 2)
+            mask = df_m.iloc[:, 2] == item['Désignation']
+            idx = df_m[mask].index
+            
             if not idx.empty:
-                current_s = float(df_m.iloc[idx[0], 4])
-                new_s = current_s - float(item['Qte'])
-                # التعديل باستعمال .at لضمان الدقة
-                df_m.at[idx[0], df_m.columns[4]] = new_s
+                # تحويل القيمة لرقم وطرح الكمية
+                current_val = pd.to_numeric(df_m.iloc[idx[0], 4], errors='coerce')
+                if pd.isna(current_val): current_val = 0
+                
+                new_s = float(current_val) - float(item['Qte'])
+                # التغيير المباشر
+                df_m.iloc[idx[0], 4] = new_s
+                
         save_data("Materiels", df_m)
 
 # --- 3. واجهة اختيار السلعة ---

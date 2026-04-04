@@ -182,15 +182,21 @@ if 'p_unit' not in st.session_state: st.session_state.p_unit = ""
 def update_gsheets_stock(cart_items):
     df_m = load_data("Materiels")
     if df_m is not None:
+        # --- هاد السطر هو الدوا ديال هاد Error ---
+        # كيرد العمود رقم 5 (Index 4) عبارة عن أرقام، ويلا لقى شي نص كيردو NaN
+        df_m.iloc[:, 4] = pd.to_numeric(df_m.iloc[:, 4], errors='coerce')
+        
         for item in cart_items:
-            # البحث عن السطر (السلعة فـ العمود C / Index 2)
             idx = df_m[df_m.iloc[:, 2] == item['Désignation']].index
             if not idx.empty:
-                current_s = pd.to_numeric(df_m.iloc[idx[0], 4], errors='coerce')
-                new_s = current_s - item['Qte']
+                current_s = df_m.iloc[idx[0], 4]
+                # حماية: يلا كان الستوك خاوي (NaN) نعتبروه 0
+                if pd.isna(current_s): current_s = 0
+                
+                new_s = float(current_s) - float(item['Qte'])
                 df_m.iloc[idx[0], 4] = new_s
+                
         save_data("Materiels", df_m)
-
 # --- 3. واجهة المستخدم ---
 st.title("📄 M-VAC System : Gestion Commerciale")
 

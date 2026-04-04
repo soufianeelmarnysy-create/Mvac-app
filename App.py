@@ -325,7 +325,12 @@ if st.session_state.cart:
     pdf.ln(5)
     pdf.cell(0, 10, f"TOTAL TTC: {ttc:.2f} DH", ln=True)
 
-    pdf_bytes = pdf.output(dest='S').encode('latin-1')
+    pdf_data = pdf.output(dest='S')
+
+if isinstance(pdf_data, bytes):
+    pdf_bytes = pdf_data
+else:
+    pdf_bytes = pdf_data.encode('latin-1')
 
     if st.download_button("💾 Télécharger PDF", data=pdf_bytes, file_name=f"{ref}.pdf"):
 

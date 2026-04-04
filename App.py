@@ -169,20 +169,28 @@ elif page == "📦 إدارة السلعة":
 import streamlit as st
 import pandas as pd
 import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 from fpdf import FPDF
 from datetime import datetime
 
 # -------------------------------
-# CONNECTION (STREAMLIT CLOUD)
+# GOOGLE SHEETS CONNECTION
 # -------------------------------
-conn = st.connection("gsheets", type="gspread")
+scope = ["https://spreadsheets.google.com/feeds","https://www.googleapis.com/auth/drive"]
 
-ws_m = conn.worksheet("Materiels")
-ws_c = conn.worksheet("Customers")
-ws_f = conn.worksheet("Facturations")
+creds = ServiceAccountCredentials.from_json_keyfile_dict(
+    st.secrets["connections"]["gsheets"], scope
+)
+
+client = gspread.authorize(creds)
+sheet = client.open_by_url(st.secrets["connections"]["gsheets"]["spreadsheet"])
+
+ws_m = sheet.worksheet("Materiels")
+ws_c = sheet.worksheet("Customers")
+ws_f = sheet.worksheet("Facturations")
 
 # -------------------------------
-# LOAD FUNCTIONS
+# HELPER FUNCTIONS
 # -------------------------------
 def load(ws):
     return pd.DataFrame(ws.get_all_records())
@@ -192,16 +200,15 @@ def save_fact(row):
 
 def update_stock(cart):
     df = load(ws_m)
-
     for item in cart:
         idx = df[df["السلعة"] == item["Désignation"]].index
         if not idx.empty:
             current = float(df.loc[idx[0], "الكمية"])
             new = current - item["Qte"]
-            ws_m.update_cell(idx[0]+2, 5, new)
+            ws_m.update_cell(idx[0]+2, 5, new)  # +2 because header row
 
 # -------------------------------
-# SESSION
+# SESSION STATE
 # -------------------------------
 if "cart" not in st.session_state:
     st.session_state.cart = []
@@ -210,17 +217,17 @@ if "saved" not in st.session_state:
     st.session_state.saved = False
 
 # -------------------------------
-# UI
+# LOAD DATA
 # -------------------------------
-st.title("🔥 M-VAC PRO")
-
 df_m = load(ws_m)
 df_c = load(ws_c)
 df_f = load(ws_f)
 
 # -------------------------------
-# CLIENT + REF AUTO
+# CLIENT + REF
 # -------------------------------
+st.title("🔥 M-VAC PRO")
+
 clients = df_c["الاسم/الشركة"].tolist()
 client = st.selectbox("👤 Client", clients)
 
@@ -228,19 +235,17 @@ commission = st.number_input("💰 Commission (%)", 0, 100, 0)
 
 count_client = len(df_f[df_f["Client"] == client]) + 1
 ref = f"{client[:3].upper()}-{count_client:03d}"
-
 st.info(f"📄 Numéro: {ref}")
 
 doc_type = st.radio("Type", ["DEVIS", "FACTURE"])
 
 # -------------------------------
-# PRODUIT
+# PRODUIT SELECTION
 # -------------------------------
 items = df_m["السلعة"].tolist()
 prod = st.selectbox("📦 Produit", items)
 
 row = df_m[df_m["السلعة"] == prod].iloc[0]
-
 stock = float(row["الكمية"])
 price = float(row["ثمن الوحدة"])
 unit = row["الوحدة"]
@@ -250,14 +255,12 @@ st.write(f"📏 Unité: {unit} | 💵 Prix: {price} DH | 📦 Stock: {stock}")
 q = st.number_input("Quantité", 0.1, stock, 1.0)
 
 if st.button("➕ Ajouter"):
-
     found = False
     for i in st.session_state.cart:
         if i["Désignation"] == prod:
             i["Qte"] += q
             i["Total"] = i["Qte"] * i["P.U"]
             found = True
-
     if not found:
         st.session_state.cart.append({
             "Désignation": prod,
@@ -265,32 +268,24 @@ if st.button("➕ Ajouter"):
             "P.U": price,
             "Total": q * price
         })
-
     st.rerun()
 
 # -------------------------------
 # PANIER
 # -------------------------------
 if st.session_state.cart:
-
     st.subheader("🧾 Panier")
-
     for i, item in enumerate(st.session_state.cart):
         col1, col2, col3 = st.columns([3,1,1])
-
         col1.write(item["Désignation"])
-
         new_qte = col2.number_input("Qte", value=item["Qte"], key=f"q{i}")
-
         if col3.button("❌", key=f"del{i}"):
             st.session_state.cart.pop(i)
             st.rerun()
-
         if new_qte != item["Qte"]:
             item["Qte"] = new_qte
             item["Total"] = new_qte * item["P.U"]
 
-    # TOTALS
     total_ht = sum(i["Total"] for i in st.session_state.cart)
     tva = total_ht * 0.2
     com = total_ht * (commission / 100)
@@ -299,10 +294,9 @@ if st.session_state.cart:
     st.success(f"HT: {total_ht:.2f} | TVA: {tva:.2f} | Commission: {com:.2f} | TTC: {ttc:.2f}")
 
     # -------------------------------
-    # SAVE
+    # SAVE BUTTON
     # -------------------------------
     if st.button("💾 Enregistrer"):
-
         new_row = [
             len(df_f)+1,
             datetime.now().strftime("%d/%m/%Y"),
@@ -313,12 +307,9 @@ if st.session_state.cart:
             ttc,
             doc_type
         ]
-
         save_fact(new_row)
-
         if doc_type == "FACTURE":
             update_stock(st.session_state.cart)
-
         st.session_state.saved = True
         st.success("✅ Enregistré")
 
@@ -326,23 +317,20 @@ if st.session_state.cart:
 # PDF
 # -------------------------------
 if st.session_state.saved:
-
     pdf = FPDF()
     pdf.add_page()
-
     pdf.set_font("Arial", "B", 16)
     pdf.cell(0, 10, f"{doc_type} - {ref}", ln=True, align="C")
-
     pdf.set_font("Arial", "", 10)
     pdf.cell(0, 8, f"Client: {client}", ln=True)
-
     pdf.ln(5)
-
     for item in st.session_state.cart:
         pdf.cell(0, 8, f"{item['Désignation']} | {item['Qte']} x {item['P.U']} = {item['Total']:.2f}", ln=True)
-
     pdf.ln(5)
     pdf.cell(0, 10, f"TTC: {ttc:.2f} DH", ln=True)
+    pdf_data = pdf.output(dest='S')
+    pdf_bytes = pdf_data if isinstance(pdf_data, bytes) else pdf_data.encode('latin-1')
+    st.download_button("📥 Télécharger PDF", pdf_bytes, file_name=f"{ref}.pdf")
 
     # SAFE PDF
     pdf_data = pdf.output(dest='S')

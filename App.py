@@ -182,20 +182,30 @@ if 'p_unit' not in st.session_state: st.session_state.p_unit = ""
 def update_gsheets_stock(cart_items):
     df_m = load_data("Materiels")
     if df_m is not None:
-        # --- هاد السطر هو الدوا ديال هاد Error ---
-        # كيرد العمود رقم 5 (Index 4) عبارة عن أرقام، ويلا لقى شي نص كيردو NaN
-        df_m.iloc[:, 4] = pd.to_numeric(df_m.iloc[:, 4], errors='coerce')
+        # 1. كنحولوا الجدول كلو لـ نسخة عادية باش ما يبقاش النوع مربوط بـ PyArrow
+        df_m = df_m.copy()
         
+        # 2. تحويل عمود الكمية (Index 4) لـ أرقام بطريقة آمنة
+        # استعملنا .astype(float) باش نهنيو الوقت
+        try:
+            df_m.iloc[:, 4] = pd.to_numeric(df_m.iloc[:, 4], errors='coerce').fillna(0).astype(float)
+        except:
+            pass # يلا كان شي مشكل ديجا غيكون 0
+            
         for item in cart_items:
-            idx = df_m[df_m.iloc[:, 2] == item['Désignation']].index
+            # كنقلبو على السلعة فـ العمود C (Index 2)
+            mask = df_m.iloc[:, 2] == item['Désignation']
+            idx = df_m[mask].index
+            
             if not idx.empty:
-                current_s = df_m.iloc[idx[0], 4]
-                # حماية: يلا كان الستوك خاوي (NaN) نعتبروه 0
-                if pd.isna(current_s): current_s = 0
+                # الحساب
+                current_s = float(df_m.iloc[idx[0], 4])
+                new_s = current_s - float(item['Qte'])
                 
-                new_s = float(current_s) - float(item['Qte'])
-                df_m.iloc[idx[0], 4] = new_s
+                # التغيير (استعمال .at أحسن وأسرع وما كيديرش Error ديال النوع)
+                df_m.at[idx[0], df_m.columns[4]] = new_s
                 
+        # 3. حفظ الجدول المعدل
         save_data("Materiels", df_m)
 # --- 3. واجهة المستخدم ---
 st.title("📄 M-VAC System : Gestion Commerciale")

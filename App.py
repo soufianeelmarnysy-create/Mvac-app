@@ -170,64 +170,71 @@ import streamlit as st
 import pandas as pd
 from fpdf import FPDF
 from datetime import datetime
-import io
 
-# --- 1. الذاكرة ---
+# --- 1. الذاكرة (Session State) ---
 if 'cart' not in st.session_state: st.session_state.cart = []
 
-# --- 2. دالة تنقيص الستوك (مصلحة من الـ TypeError) ---
+# --- 2. دالة تنقيص الستوك (مصلحة على حساب الأعمدة فالتصويرة) ---
 def update_gsheets_stock(cart_items):
     df_m = load_data("Materiels")
     if df_m is not None:
-        df_m = df_m.copy().astype(object) # الحل ديال TypeError
+        # تحويل الجدول لنسخة مرنة (Object) باش ما يطرى حتى TypeError
+        df_m = df_m.copy().astype(object) 
         for item in cart_items:
+            # البحث بالسلعة في العمود C (Index 2)
             mask = df_m.iloc[:, 2] == item['Désignation']
             idx = df_m[mask].index
             if not idx.empty:
+                # تنقيص الكمية من العمود E (Index 4)
                 current_val = pd.to_numeric(df_m.iloc[idx[0], 4], errors='coerce')
-                new_s = float(current_val or 0) - float(item['Qte'])
+                new_s = float(current_val if not pd.isna(current_val) else 0) - float(item['Qte'])
                 df_m.iloc[idx[0], 4] = new_s
         save_data("Materiels", df_m)
 
-st.title("📄 M-VAC System (Original Version)")
+st.title("📄 M-VAC System (Official Edition)")
 
-# تحميل البيانات
+# تحميل الجداول الثلاثة
 df_m = load_data("Materiels")
 df_c = load_data("Customers")
 df_f = load_data("Facturations")
 
-# --- 3. اختيار السلعة (نفس الخدمة اللي كانت عندك) ---
+# --- 3. واجهة إضافة السلعة (نفس اللي فالصورة 4) ---
 if df_m is not None:
+    # جلب السلع من العمود C
     items_list = df_m.iloc[:, 2].dropna().tolist()
     col1, col2 = st.columns([3, 1])
     with col1:
         s_item = st.selectbox("Article", items_list)
         row = df_m[df_m.iloc[:, 2] == s_item].iloc[0]
+        # جلب الستوك من E والثمن من F
         p_stock = pd.to_numeric(row.iloc[4], errors='coerce')
         p_price = float(row.iloc[5])
     with col2:
+        # عرض الستوك كيفما فالصورة
         st.metric("Stock", p_stock)
 
-    with st.form("add"):
+    with st.form("main_add_form"):
         q = st.number_input("Quantité", min_value=0.1, value=1.0)
         if st.form_submit_button("➕ Ajouter au Panier"):
-            if q > p_stock: st.error("Stock insuffisant!")
+            if q > p_stock: st.error("❌ Stock insuffisant!")
             else:
                 st.session_state.cart.append({"Désignation": s_item, "Qte": q, "P.U": p_price, "Total": q*p_price})
                 st.rerun()
 
-# --- 4. العزلة ديال Client و Devis/Facture (اللي رجعت دابا) ---
+# --- 4. العزلة (Client + Devis/Facture) وتزيين PDF ---
 if st.session_state.cart:
     st.divider()
     st.write("### 🛒 Panier")
     st.table(pd.DataFrame(st.session_state.cart))
     
+    # تقسيم الصفحة لعزلة الاختيارات
     col_v1, col_v2 = st.columns(2)
+    
     with col_v1:
-        # هنا رجعنا الاختيار بين Devis و Facture
+        # عزلة نوع الوثيقة
         d_type = st.radio("Document Type", ["DEVIS", "FACTURE"], horizontal=True)
-        # هنا رجعنا عزلة الـ Client (كيقرا من العمود C)
-        list_c = df_c.iloc[:, 2].dropna().tolist() if df_c is not None else ["Passager"]
+        # عزلة الكليان (كيجيب السمية من العمود C فجدول Customers)
+        list_c = df_c.iloc[:, 2].dropna().tolist() if df_c is not None else ["Client Standard"]
         s_client = st.selectbox("Choisir le Client", list_c)
         d_ref = st.text_input("Référence", value=f"MVAC-{datetime.now().strftime('%y%m%H%M')}")
 
@@ -237,53 +244,59 @@ if st.session_state.cart:
         st.metric("Total TTC", f"{ttc:,.2f} DH")
 
         # ==========================================
-        # 🎨 كود تزيين الـ PDF (هنا فين كاين الديزاين)
+        # 🎨 كود تزيين الـ PDF (الديزاين اللي طلبتي)
         # ==========================================
         pdf = FPDF()
         pdf.add_page()
-        pdf.set_font("Arial", 'B', 20)
-        pdf.set_text_color(41, 128, 185) # لون أزرق
+        # Header ملون
+        pdf.set_font("Arial", 'B', 18)
+        pdf.set_text_color(41, 128, 185) # أزرق احترافي
         pdf.cell(0, 15, txt=f"M-VAC SARL - {d_type}", ln=True, align='C')
         
+        # معلومات الزبون والريفيرونس
         pdf.set_font("Arial", '', 11)
         pdf.set_text_color(0, 0, 0)
-        pdf.cell(0, 8, txt=f"Ref: {d_ref} | Client: {s_client}", ln=True)
+        pdf.cell(0, 8, txt=f"Date : {datetime.now().strftime('%d/%m/%Y')}", ln=True)
+        pdf.cell(0, 8, txt=f"Référence : {d_ref}", ln=True)
+        pdf.cell(0, 8, txt=f"Client : {s_client}", ln=True)
         pdf.ln(10)
 
-        # رأس الجدول ملون
+        # رأس الجدول مزوق
         pdf.set_fill_color(41, 128, 185); pdf.set_text_color(255, 255, 255)
         pdf.set_font("Arial", 'B', 12)
         pdf.cell(100, 10, "Désignation", 1, 0, 'C', 1)
         pdf.cell(40, 10, "Qte", 1, 0, 'C', 1)
         pdf.cell(50, 10, "Total HT", 1, 1, 'C', 1)
 
-        # السلعة
+        # محتوى السلعة
         pdf.set_font("Arial", '', 11); pdf.set_text_color(0, 0, 0)
         for item in st.session_state.cart:
             pdf.cell(100, 10, str(item['Désignation']), 1)
             pdf.cell(40, 10, str(item['Qte']), 1, 0, 'C')
             pdf.cell(50, 10, f"{item['Total']:.2f}", 1, 1, 'R')
 
-        # المجموع
+        # المجموع النهائي بالألوان
         pdf.ln(5); pdf.set_font("Arial", 'B', 13); pdf.set_fill_color(240, 240, 240)
-        pdf.cell(140, 12, "TOTAL TTC :", 1, 0, 'R', 1)
-        pdf.set_text_color(192, 57, 43)
+        pdf.cell(140, 12, "TOTAL TTC (TVA 20%) :", 1, 0, 'R', 1)
+        pdf.set_text_color(192, 57, 43) # أحمر للمبلغ
         pdf.cell(50, 12, f"{ttc:,.2f} DH", 1, 1, 'C', 1)
         # ==========================================
 
-        # تحويل PDF لـ Bytes (حل AttributeError)
-        p_raw = pdf.output(); p_bytes = bytes(p_raw) if not isinstance(p_raw, str) else p_raw.encode('latin-1')
+        # تحويل لـ Bytes وحل مشكلة AttributeError
+        p_raw = pdf.output()
+        p_bytes = bytes(p_raw) if not isinstance(p_raw, str) else p_raw.encode('latin-1')
 
         if st.download_button("💾 Valider & Télécharger PDF", data=p_bytes, file_name=f"{d_ref}.pdf", mime="application/pdf", type="primary"):
-            # حفظ الفاتورة
+            # حفظ فجدول Facturations
             new_f = [len(df_f)+1, datetime.now().strftime("%d/%m/%Y"), d_ref, s_client, total_ht, total_ht*0.2, ttc, d_type]
-            save_data("Facturations", pd.concat([df_f, pd.DataFrame([new_f], columns=df_f.columns[:8])]))
+            save_data("Facturations", pd.concat([df_f, pd.DataFrame([new_f], columns=df_f.columns[:8])], ignore_index=True))
             
-            # تنقيص الستوك غير فالفاتورة
-            if d_type == "FACTURE": update_gsheets_stock(st.session_state.cart)
+            # تنقيص الستوك غير يلا كانت FACTURE
+            if d_type == "FACTURE":
+                update_gsheets_stock(st.session_state.cart)
             
             st.session_state.cart = []
-            st.success("C'est fait!")
+            st.success("✅ Opération terminée!")
             st.rerun()
 
     if st.button("🗑️ Vider le panier"):

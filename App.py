@@ -166,43 +166,48 @@ elif page == "📦 إدارة السلعة":
 # =========================================================
 # 📄 5. صفحة الفاتورة (Facturation)
 # ========================================================================================================================================================================
-elif page == "📄 Devis / Facture":
+if page == "📄 Devis / Facture":
     st.header("📄 Gestion des Factures & Devis PRO")
     
-    # 1. تحميل البيانات
+    # 1. تحميل البيانات من Google Sheets
+    # هاد الدوال كيجيبو البيانات الحية باش يكون الحساب دقيق
     df_c = load_data("Customers")
     df_m = load_data("Materiels")
     df_f = load_data("Facturations")
 
+    # إعداد "السلة" في ذاكرة المتصفح (Session State)
+    # هادي هي اللي كتخلي السلع تبقى باينة واخا تزيد سلع أخرى
     if 'cart' not in st.session_state:
         st.session_state.cart = []
 
-    # 2. إعدادات الوثيقة (Client & Type)
+    # 2. إعدادات الوثيقة (الزبون ونوع الوثيقة)
     with st.container(border=True):
         c1, c2, c3 = st.columns([1, 2, 1])
         d_type = c1.selectbox("Type", ["DEVIS", "FACTURE"], key="type_v3")
         
-        # كنجيبو الكليان من العمود رقم 2 (الاسم/الشركة)
+        # كنجيبو أسماء الكليان من العمود رقم 2 (الاسم/الشركة)
         c_list = df_c.iloc[:, 2].dropna().unique().tolist() if not df_c.empty else ["Client Standard"]
         s_client = c2.selectbox("Client", c_list, key="client_v3")
+        
+        # توليد رقم تسلسلي تلقائي للوثيقة
         d_num = c3.text_input("N° Doc", value=f"{d_type[0]}{datetime.now().strftime('%y%m%d%H%M')}")
 
-    # 3. إضافة السلع (استعمال رقم العمود لتجنب مشاكل الأسماء)
+    # 3. إضافة السلع (قراءة تلقائية للثمن والوحدة من الـ Sheets)
     with st.container(border=True):
         st.subheader("📦 Ajouter des articles")
         i1, i2, i3, i4 = st.columns([3, 1, 1, 1])
         
-        # السلعة في العمود رقم 2 (Index 2)
+        # لستة ديال السلع من العمود رقم 2
         m_list = df_m.iloc[:, 2].dropna().unique().tolist() if not df_m.empty else []
         s_name = i1.selectbox("Article", [""] + m_list, key="art_v3")
         
         u_v, p_v = "", 0.0
         if s_name != "" and not df_m.empty:
-            # كنقلبو على السطر اللي فيه السلعة
+            # "Boucle" صغيرة داخلية (Logic) باش نجبدو ثمن السلعة لي تختارات
             row = df_m[df_m.iloc[:, 2] == s_name].iloc[0]
-            u_v = str(row.iloc[3]) if len(row) > 3 else ""  # الوحدة في العمود 3
+            u_v = str(row.iloc[3]) if len(row) > 3 else ""  # الوحدة (العمود 3)
             try:
-                # الثمن في العمود 5 (Index 5)
+                # الثمن (العمود 5) - درنا تنظيف للبيانات باش ما يعطيش Error
                 val_p = str(row.iloc[5]).replace(',', '.').strip()
                 p_v = float(val_p)
             except:
@@ -212,21 +217,25 @@ elif page == "📄 Devis / Facture":
         s_qte = i3.number_input("Qté", min_value=0.1, value=1.0)
         s_price = i4.number_input("Prix HT", value=p_v)
 
+        # زر الإضافة للسلة
         if st.button("➕ Ajouter à la liste", use_container_width=True):
             if s_name != "":
+                # كنخزنو المعلومات كـ "Dictionary" وسط السلة
                 st.session_state.cart.append({
                     "Désignation": s_name, "Unité": s_unit,
                     "Qte": s_qte, "PU_HT": s_price, "Total_HT": s_qte * s_price
                 })
                 st.rerun()
 
-    # 4. عرض الجدول وحساب المجموع (هنا كيرجعو الأثمنة والأزرار)
+    # 4. عرض الجدول وحساب المجموع
     if st.session_state.cart:
+        # هاد الـ "Loop" (for idx, item in...) كتدوز على كاع السلع لي فالسلة وتكتبهم
         for idx, item in enumerate(st.session_state.cart):
             col_a, col_b = st.columns([6, 1])
             col_a.info(f"**{item['Désignation']}** | {item['Qte']} {item['Unité']} x {item['PU_HT']:.2f} = {item['Total_HT']:.2f} DH")
+            # زر الحذف (Trash) باش تمسح سطر معين
             if col_b.button("🗑️", key=f"del_{idx}"):
-                st.session_state.cart.pop(idx)
+                st.session_state.cart.pop(idx) # كيمسح السلعة من السلسلة باستعمال الترتيب ديالها (idx)
                 st.rerun()
 
         # الحسابات الإجمالية
@@ -238,12 +247,53 @@ elif page == "📄 Devis / Facture":
 
         st.markdown(f"### TOTAL TTC: {ttc:,.2f} DH")
 
-        # 5. الأزرار (Enregistrer & PDF)
+        # 5. صنع الـ PDF (حل مشكلة الـ Bytes)
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Arial", 'B', 16)
+        pdf.cell(0, 10, f"M-VAC PRO - {d_type}", ln=True, align='C')
+        pdf.set_font("Arial", '', 12)
+        pdf.cell(0, 10, f"Client: {s_client} | Ref: {d_num}", ln=True)
+        pdf.ln(10)
+        
+        # جدول السلع فـ الـ PDF
+        pdf.cell(100, 10, "Article", 1); pdf.cell(30, 10, "Qte", 1); pdf.cell(60, 10, "Total HT", 1, 1)
+        for item in st.session_state.cart:
+            pdf.cell(100, 10, str(item['Désignation']), 1)
+            pdf.cell(30, 10, str(item['Qte']), 1)
+            pdf.cell(60, 10, f"{item['Total_HT']:.2f} DH", 1, 1)
+
+        # تحويل الـ PDF لـ Bytes باش يتفادى AttributeError
+        # 'dest=S' كيرجع الـ PDF كـ نص، و 'encode' كيحولو لبيانات كيقبلها زر التحميل
+        try:
+            pdf_output = pdf.output(dest='S')
+            p_bytes = pdf_output.encode('latin-1') if isinstance(pdf_output, str) else pdf_output
+        except:
+            p_bytes = b""
+
+        # 6. أزرار الحفظ والتحميل
         b1, b2 = st.columns(2)
         with b1:
-            if st.button("💾 Enregistrer dans Sheets", type="primary", use_container_width=True):
-                # كود الحفظ...
+            if st.button("💾 Valider & Enregistrer", type="primary", use_container_width=True):
+                # كود تنقيص الستوك من Sheets (فقط فـ FACTURE)
+                if d_type == "FACTURE":
+                    df_m_new = load_data("Materiels")
+                    for item in st.session_state.cart:
+                        mask = df_m_new.iloc[:, 2] == item['Désignation']
+                        if not df_m_new[mask].index.empty:
+                            idx = df_m_new[mask].index[0]
+                            # نقص الكمية من العمود رقم 4 (Stock)
+                            old_q = float(df_m_new.iloc[idx, 4])
+                            df_m_new.iloc[idx, 4] = old_q - float(item['Qte'])
+                    save_data("Materiels", df_m_new)
+
+                # حفظ سجل الفاتورة فـ Facturations
+                new_f = [len(df_f)+1, datetime.now().strftime("%d/%m/%Y"), d_num, s_client, ht_net, tva, ttc, d_type]
+                save_data("Facturations", pd.concat([df_f, pd.DataFrame([new_f], columns=df_f.columns[:8])]))
+                
+                st.session_state.cart = [] # خوي السلة
                 st.success("✅ Enregistré !")
+                st.rerun()
+
         with b2:
-            # كود PDF المصحح...
-            st.button("📥 Télécharger PDF Officiel", use_container_width=True)
+            st.download_button("📥 Télécharger PDF", data=p_bytes, file_name=f"{d_num}.pdf", mime="application/pdf", use_container_width=True)

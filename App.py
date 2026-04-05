@@ -326,6 +326,4 @@ elif menu == "🛒 Ventes & Factures":
             st.success(f"✅ تم تسجيل {d_type} بنجاح!")
             st.rerun()
 
-        if st.button("🗑️ Vider le panier"):
-            st.session_state.cart = []
-            st.rerun()
+       

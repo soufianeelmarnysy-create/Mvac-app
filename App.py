@@ -168,203 +168,149 @@ elif page == "📦 إدارة السلعة":
 # ========================================================================================================================================================================
 import streamlit as st
 import pandas as pd
-from fpdf import FPDF
-from datetime import datetime
 from streamlit_gsheets import GSheetsConnection
+from datetime import datetime
+from fpdf import FPDF
+import io
 
-# 1. إعدادات الصفحة
-st.set_page_config(page_title="M-VAC PRO", layout="wide")
+# 1. الربط مع Google Sheets
+conn = st.connection("gsheets", type=GSheetsConnection)
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1D5ogjG53HMl791W1RfHDEk0ngom0P4uf-cCPWgBjwAs/edit"
 
-st.title("📄 M-VAC PRO : Gestion Commerciale")
-
-# 2. الربط مع Google Sheets
-try:
-    conn = st.connection("gsheets", type=GSheetsConnection)
-except Exception as e:
-    st.error(f"❌ مشكل في الاتصال بـ Google Sheets: {e}")
-
-# دالة جلب البيانات مع معالجة الأخطاء باش متبقاش الصفحة بيضاء
-def load_data(sheet_name):
-    try:
-        # ttl=0 باش يجيب البيانات دقة بدقة
-        df = conn.read(worksheet=sheet_name, ttl="0m")
-        if df is empty or df is None:
-            return pd.DataFrame()
-        return df
-    except Exception as e:
-        st.warning(f"⚠️ تنبيه: تعذر قراءة ورقة '{sheet_name}'. تأكد من وجودها.")
-        return pd.DataFrame()
-
-# دالة حفظ البيانات
-def save_data(sheet_name, df):
-    try:
-        conn.update(worksheet=sheet_name, data=df)
-        st.cache_data.clear()
-    except Exception as e:
-        st.error(f"❌ فشل حفظ البيانات في {sheet_name}: {e}")
-
-# 3. إدارة سلة التسوق (Session State)
+# 2. إعداد السلة (Session State) - ضروري يكون فالفوق
 if 'cart' not in st.session_state:
     st.session_state.cart = []
 
-# 4. دالة تحديث المخزون (Update Stock)
-def update_gsheets_stock(cart_items):
-    df_m = load_data("Materiels")
-    if not df_m.empty:
-        df_m = df_m.copy().astype(object)
-        for item in cart_items:
-            # البحث بالسلعة في العمود الثالث (index 2)
-            mask = df_m.iloc[:, 2] == item['Désignation']
-            idx = df_m[mask].index
-            if not idx.empty:
-                # تحديث الستوك في العمود الخامس (index 4)
-                current_stock = pd.to_numeric(df_m.iloc[idx[0], 4], errors='coerce')
-                new_stock = float(current_stock if not pd.isna(current_stock) else 0) - float(item['Qte'])
-                df_m.iloc[idx[0], 4] = max(0, new_stock)
-        save_data("Materiels", df_m)
+# 3. دالة جلب البيانات
+def load_data(sheet_name):
+    try:
+        df = conn.read(spreadsheet=SHEET_URL, worksheet=sheet_name, ttl=0)
+        if df is not None:
+            df.columns = df.columns.str.strip()
+            return df.fillna("").astype(str).replace(r'\.0$', '', regex=True)
+        return pd.DataFrame()
+    except:
+        return pd.DataFrame()
 
-# 5. جلب البيانات الأساسية
+# 4. دالة الحفظ
+def save_data(sheet_name, df):
+    try:
+        conn.update(spreadsheet=SHEET_URL, worksheet=sheet_name, data=df)
+        return True
+    except Exception as e:
+        st.error(f"❌ Error: {e}")
+        return False
+
+# --- بداية واجهة الفاتورة ---
+st.title("📄 M-VAC PRO : Facturation")
+
 df_m = load_data("Materiels")
 df_c = load_data("Customers")
 df_f = load_data("Facturations")
 
-# --- واجهة إضافة السلع ---
-st.subheader("🛒 Ajouter Article")
-
-if not df_m.empty:
-    # جلب قائمة السلع من العمود C (index 2)
-    items_list = df_m.iloc[:, 2].dropna().unique().tolist()
+if df_m.empty:
+    st.warning("⚠️ جدول السلع خاوي.")
+else:
+    st.subheader("🛒 Ajouter au Panier")
+    
+    # جلب السلع (العمود رقم 2 هو السلعة)
+    items_list = df_m.iloc[:, 2].unique().tolist()
     
     col1, col2 = st.columns([3, 1])
     with col1:
         s_item = st.selectbox("Sélectionner l'Article", items_list)
-        # جلب معلومات السلعة المختارة
         row = df_m[df_m.iloc[:, 2] == s_item].iloc[0]
         
-        # Stock: E (4), Price: F (5), Unit: D (3)
+        # جلب البيانات من الأعمدة (E=4 للستوك، F=5 للثمن، D=3 للوحدة)
         p_stock = pd.to_numeric(row.iloc[4], errors='coerce')
-        p_price = float(row.iloc[5]) if not pd.isna(row.iloc[5]) else 0.0
+        p_price = pd.to_numeric(row.iloc[5], errors='coerce')
         p_unit = str(row.iloc[3])
         
-        q = st.number_input("Quantité", min_value=0.1, value=1.0, step=1.0)
-        p = st.number_input("Prix HT (DH)", value=p_price)
+        q = st.number_input("Quantité", min_value=0.1, value=1.0)
+        p = st.number_input("Prix HT (DH)", value=float(p_price if not pd.isna(p_price) else 0))
 
     with col2:
-        st_color = "green" if p_stock > 0 else "red"
-        st.markdown(f"""
-            <div style='text-align:center; padding:15px; border:2px solid {st_color}; border-radius:15px;'>
-                Stock الحالي<br><h2 style='color:{st_color};'>{p_stock}</h2><small>{p_unit}</small>
-            </div>
-            """, unsafe_allow_html=True)
+        color = "green" if p_stock > 0 else "red"
+        st.markdown(f"<div style='text-align:center; padding:10px; border:2px solid {color}; border-radius:10px;'>Stock<br><h2 style='color:{color};'>{p_stock}</h2></div>", unsafe_allow_html=True)
 
     if st.button("➕ Ajouter au Panier", use_container_width=True):
         if q > p_stock:
             st.error("❌ Stock insuffisant!")
         else:
-            found = False
-            for i in st.session_state.cart:
-                if i["Désignation"] == s_item:
-                    i["Qte"] += q
-                    i["Total"] = i["Qte"] * i["P.U"]
-                    found = True
-                    break
-            if not found:
-                st.session_state.cart.append({
-                    "Désignation": s_item, "Unité": p_unit, "Qte": q, "P.U": p, "Total": q * p
-                })
+            st.session_state.cart.append({
+                "Désignation": s_item, 
+                "Unité": p_unit, 
+                "Qte": q, 
+                "P.U": p, 
+                "Total": q * p
+            })
             st.rerun()
-else:
-    st.info("💡 في انتظار تحميل بيانات السلع من Google Sheets...")
 
-# --- عرض السلة والتحكم في الفاتورة ---
+# --- عرض السلة والتحميل ---
 if st.session_state.cart:
     st.divider()
-    st.subheader("🧾 Panier & Validation")
+    st.subheader("🧾 Récapitulatif")
     st.table(pd.DataFrame(st.session_state.cart))
 
-    col_v1, col_v2 = st.columns(2)
-    with col_v1:
-        d_type = st.radio("Type de Document", ["DEVIS", "FACTURE"], horizontal=True)
-        
-        # جلب الزبناء من العمود C (index 2) في ورقة Customers
-        list_c = df_c.iloc[:, 2].dropna().unique().tolist() if not df_c.empty else ["Client Standard"]
-        s_client = st.selectbox("Choisir le Client", list_c)
+    c1, c2 = st.columns(2)
+    with c1:
+        d_type = st.radio("Document", ["DEVIS", "FACTURE"], horizontal=True)
+        # الكليان من العمود رقم 2 فجدول Customers
+        clients = df_c.iloc[:, 2].tolist() if not df_c.empty else ["Passager"]
+        s_client = st.selectbox("Client", clients)
         d_ref = st.text_input("Référence", value=f"MVAC-{datetime.now().strftime('%y%m%d%H%M')}")
 
-    with col_v2:
+    with c2:
         total_ht = sum(i['Total'] for i in st.session_state.cart)
         ttc = total_ht * 1.2
-        st.metric("Total TTC à Payer", f"{ttc:,.2f} DH")
+        st.metric("Total TTC", f"{ttc:,.2f} DH")
 
-        # --- توليد الـ PDF ---
+        # --- توليد PDF ---
         pdf = FPDF()
         pdf.add_page()
         pdf.set_fill_color(41, 128, 185)
         pdf.rect(0, 0, 210, 40, 'F')
-        pdf.set_font("Arial", 'B', 24)
-        pdf.set_text_color(255, 255, 255)
+        pdf.set_font("Arial", 'B', 20); pdf.set_text_color(255, 255, 255)
         pdf.cell(0, 20, txt=f"M-VAC SARL - {d_type}", ln=True, align='C')
         
-        pdf.ln(25)
-        pdf.set_text_color(0, 0, 0)
-        pdf.set_font("Arial", 'B', 12)
-        pdf.cell(0, 8, txt=f"Date: {datetime.now().strftime('%d/%m/%Y')} | Ref: {d_ref}", ln=True)
-        pdf.cell(0, 8, txt=f"Client: {s_client}", ln=True)
-        pdf.ln(10)
-
-        # Header الجدول
+        pdf.ln(25); pdf.set_text_color(0, 0, 0); pdf.set_font("Arial", 'B', 12)
+        pdf.cell(0, 8, txt=f"Ref: {d_ref} | Client: {s_client}", ln=True)
+        pdf.ln(5)
+        
+        # الجدول فـ PDF
         pdf.set_fill_color(41, 128, 185); pdf.set_text_color(255, 255, 255)
-        pdf.cell(90, 10, "Designation", 1, 0, 'C', 1)
-        pdf.cell(30, 10, "Qte", 1, 0, 'C', 1)
-        pdf.cell(30, 10, "P.U", 1, 0, 'C', 1)
-        pdf.cell(40, 10, "Total HT", 1, 1, 'C', 1)
-
+        pdf.cell(100, 10, "Designation", 1, 0, 'C', 1)
+        pdf.cell(40, 10, "Qte", 1, 0, 'C', 1)
+        pdf.cell(50, 10, "Total HT", 1, 1, 'C', 1)
+        
         pdf.set_text_color(0, 0, 0); pdf.set_font("Arial", '', 11)
         for item in st.session_state.cart:
-            # تنظيف الاسم من أي رموز غريبة
-            clean_name = str(item['Désignation']).encode('ascii', 'ignore').decode('ascii')
-            pdf.cell(90, 10, clean_name, 1)
-            pdf.cell(30, 10, str(item['Qte']), 1, 0, 'C')
-            pdf.cell(30, 10, f"{item['P.U']:.2f}", 1, 0, 'C')
-            pdf.cell(40, 10, f"{item['Total']:.2f}", 1, 1, 'R')
+            pdf.cell(100, 10, str(item['Désignation']), 1)
+            pdf.cell(40, 10, str(item['Qte']), 1, 0, 'C')
+            pdf.cell(50, 10, f"{item['Total']:.2f}", 1, 1, 'R')
 
-        pdf.ln(5)
-        pdf.set_font("Arial", 'B', 13)
-        pdf.cell(150, 12, "TOTAL TTC (TVA 20%) :", 1, 0, 'R')
-        pdf.cell(40, 12, f"{ttc:,.2f} DH", 1, 1, 'C')
+        # تحويل الـ PDF لـ Bytes
+        p_bytes = pdf.output(dest='S').encode('latin-1')
 
-        # استخراج الـ Bytes بطريقة آمنة لـ Streamlit
-        p_out = pdf.output()
-        p_bytes = bytes(p_out) if isinstance(p_out, (bytearray, bytes)) else p_out.encode('latin-1')
-
-        if st.download_button(
-            label="💾 Valider & Télécharger PDF", 
-            data=p_bytes, 
-            file_name=f"{d_ref}.pdf", 
-            mime="application/pdf", 
-            type="primary", 
-            use_container_width=True
-        ):
-            # 1. تحديث سجل الفواتير (Facturations)
-            if not df_f.empty:
-                new_f = [len(df_f)+1, datetime.now().strftime("%d/%m/%Y"), d_ref, s_client, total_ht, total_ht*0.2, ttc, d_type]
-                df_f.loc[len(df_f)] = new_f
-                save_data("Facturations", df_f)
-            
-            # 2. تحديث الستوك (فقط في حالة الفاتورة)
+        if st.download_button("💾 Valider & Télécharger PDF", data=p_bytes, file_name=f"{d_ref}.pdf", mime="application/pdf"):
+            # 1. تحديث الستوك (فقط فالفاتورة)
             if d_type == "FACTURE":
-                update_gsheets_stock(st.session_state.cart)
+                for item in st.session_state.cart:
+                    mask = df_m.iloc[:, 2] == item['Désignation']
+                    idx = df_m[mask].index
+                    if not idx.empty:
+                        curr = pd.to_numeric(df_m.iloc[idx[0], 4], errors='coerce')
+                        df_m.iloc[idx[0], 4] = float(curr if not pd.isna(curr) else 0) - float(item['Qte'])
+                save_data("Materiels", df_m)
+            
+            # 2. حفظ فـ Facturations
+            new_f = [len(df_f)+1, datetime.now().strftime("%d/%m/%Y"), d_ref, s_client, total_ht, total_ht*0.2, ttc, d_type]
+            save_data("Facturations", pd.concat([df_f, pd.DataFrame([new_f], columns=df_f.columns[:8])], ignore_index=True))
             
             st.session_state.cart = []
-            st.success("✅ العملية تمت بنجاح!")
+            st.success("✅ العمليّة تمّت بنجاح!")
             st.rerun()
 
-    if st.button("🗑️ Vider le panier", use_container_width=True):
+    if st.button("🗑️ Vider le Panier"):
         st.session_state.cart = []
         st.rerun()
-
-    # SAFE PDF
-    pdf_data = pdf.output(dest='S')
-    pdf_bytes = pdf_data if isinstance(pdf_data, bytes) else pdf_data.encode('latin-1')
-
-    st.download_button("📥 Télécharger PDF", pdf_bytes, file_name=f"{ref}.pdf")

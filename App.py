@@ -272,15 +272,35 @@ if page == "📄 Devis / Facture":
         st.write(f"**Total HT:** {t_ht:,.2f} | **TVA:** {t_tva:,.2f} | **TOTAL TTC:** {t_ttc:,.2f} DH")
 
         # --- زر الحفظ النهائي و PDF ---
+        # --- زر الحفظ النهائي و PDF ---
         if st.button("💾 Enregistrer Document Final", type="primary", use_container_width=True):
-            # 1. الحفظ في Google Sheets
-            target = "Facturations" if doc_type == "FACTURE" else "Devis"
+            # 1. تحديد الجدول المستهدف
+            target_sheet = "Facturations" if doc_type == "FACTURE" else "Devis"
             existing_df = df_f if doc_type == "FACTURE" else df_d
-            new_row = [len(existing_df)+1, datetime.now().strftime("%d/%m/%Y"), d_ref, s_client, t_ht, t_tva, t_ttc]
             
-            # إضافة السطر الجديد
-            updated_df = pd.concat([existing_df, pd.DataFrame([new_row], columns=existing_df.columns[:7])])
-            save_data(target, updated_df)
+            # قاد السطر الجديد (ID, Date, Ref, Client, HT, TVA, TTC)
+            new_row_data = [
+                len(existing_df) + 1, 
+                datetime.now().strftime("%d/%m/%Y"), 
+                d_ref, 
+                s_client, 
+                t_ht, 
+                t_tva, 
+                t_ttc
+            ]
+
+            # هاد الجزء هو اللي كيحل المشكل: كيزيد "خانات خاوية" يلا كان الشيت فيه أعمدة كثر
+            if len(new_row_data) < len(existing_df.columns):
+                new_row_data += [""] * (len(existing_df.columns) - len(new_row_data))
+            elif len(new_row_data) > len(existing_df.columns):
+                new_row_data = new_row_data[:len(existing_df.columns)]
+
+            # دابا الـ concat غايخدم بلا خطأ
+            new_row_df = pd.DataFrame([new_row_data], columns=existing_df.columns)
+            updated_df = pd.concat([existing_df, new_row_df], ignore_index=True)
+            
+            # حفظ البيانات
+            save_data(target_sheet, updated_df)
             
             # 2. توليد PDF
             pdf_data = generate_pdf(doc_type, d_ref, s_client, st.session_state.cart, t_ht, t_tva, t_ttc)

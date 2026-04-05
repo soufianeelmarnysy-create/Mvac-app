@@ -169,148 +169,85 @@ elif page == "📦 إدارة السلعة":
 import streamlit as st
 import pandas as pd
 from streamlit_gsheets import GSheetsConnection
-from datetime import datetime
-from fpdf import FPDF
-import io
 
-# 1. الربط مع Google Sheets
+# 1. إعداد الصفحة والستايل (CSS)
+st.set_page_config(page_title="M-VAC DASHBOARD", layout="wide")
+
+# هاد الجزء هو اللي كيعطي الستايل ديال الصورة (الألوان، الحواف، الخطوط)
+st.markdown("""
+    <style>
+        /* ستايل الخلفية والخطوط */
+        .main { background-color: #f8f9fa; }
+        
+        /* ستايل الكارط (Cards) بحال اللي في الصورة */
+        .metric-card {
+            background-color: white;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            border-left: 5px solid #2980b9;
+            margin-bottom: 20px;
+        }
+        
+        /* ستايل العنوان داخل الكارط */
+        .metric-title { color: #7f8c8d; font-size: 14px; font-weight: bold; }
+        .metric-value { color: #2c3e50; font-size: 24px; font-weight: bold; }
+    </style>
+""", unsafe_allow_html=True)
+
+# 2. الربط مع البيانات
 conn = st.connection("gsheets", type=GSheetsConnection)
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1D5ogjG53HMl791W1RfHDEk0ngom0P4uf-cCPWgBjwAs/edit"
 
-# 2. إعداد السلة (Session State) - ضروري يكون فالفوق
-if 'cart' not in st.session_state:
-    st.session_state.cart = []
+def get_data(sheet):
+    return conn.read(worksheet=sheet, ttl="0m")
 
-# 3. دالة جلب البيانات
-def load_data(sheet_name):
-    try:
-        df = conn.read(spreadsheet=SHEET_URL, worksheet=sheet_name, ttl=0)
-        if df is not None:
-            df.columns = df.columns.str.strip()
-            return df.fillna("").astype(str).replace(r'\.0$', '', regex=True)
-        return pd.DataFrame()
-    except:
-        return pd.DataFrame()
+# ---------------------------------------------------------
+# 3. الـ SIDEBAR (القائمة الجانبية بحال الصورة)
+# ---------------------------------------------------------
+with st.sidebar:
+    st.image("https://via.placeholder.com/150x50?text=M-VAC+PRO", use_container_width=True)
+    st.markdown("---")
+    menu = st.radio(
+        "Menu Principal",
+        ["📊 Tableau de bord", "🛒 Ventes", "📦 Stock", "👥 Clients", "⚙️ Paramètres"]
+    )
 
-# 4. دالة الحفظ
-def save_data(sheet_name, df):
-    try:
-        conn.update(spreadsheet=SHEET_URL, worksheet=sheet_name, data=df)
-        return True
-    except Exception as e:
-        st.error(f"❌ Error: {e}")
-        return False
-
-# --- بداية واجهة الفاتورة ---
-st.title("📄 M-VAC PRO : Facturation")
-
-df_m = load_data("Materiels")
-df_c = load_data("Customers")
-df_f = load_data("Facturations")
-
-if df_m.empty:
-    st.warning("⚠️ جدول السلع خاوي.")
-else:
-    st.subheader("🛒 Ajouter au Panier")
+# ---------------------------------------------------------
+# 4. وظيفة الـ DASHBOARD (الصفحة الرئيسية)
+# ---------------------------------------------------------
+if menu == "📊 Tableau de bord":
+    st.header("Tableau de Bord")
     
-    # جلب السلع (العمود رقم 2 هو السلعة)
-    items_list = df_m.iloc[:, 2].unique().tolist()
+    # جلب البيانات للحساب
+    df_f = get_data("Facturations")
+    total_ca = df_f.iloc[:, 6].sum() if not df_f.empty else 0
     
-    col1, col2 = st.columns([3, 1])
+    # رسم "الكارطات" بحال اللي في الصورة
+    col1, col2, col3, col4 = st.columns(4)
+    
     with col1:
-        s_item = st.selectbox("Sélectionner l'Article", items_list)
-        row = df_m[df_m.iloc[:, 2] == s_item].iloc[0]
+        st.markdown(f"""<div class='metric-card'>
+            <div class='metric-title'>📈 CHIFFRE D'AFFAIRES</div>
+            <div class='metric-value'>{total_ca:,.2f} DH</div>
+        </div>""", unsafe_allow_html=True)
         
-        # جلب البيانات من الأعمدة (E=4 للستوك، F=5 للثمن، D=3 للوحدة)
-        p_stock = pd.to_numeric(row.iloc[4], errors='coerce')
-        p_price = pd.to_numeric(row.iloc[5], errors='coerce')
-        p_unit = str(row.iloc[3])
-        
-        q = st.number_input("Quantité", min_value=0.1, value=1.0)
-        p = st.number_input("Prix HT (DH)", value=float(p_price if not pd.isna(p_price) else 0))
-
     with col2:
-        color = "green" if p_stock > 0 else "red"
-        st.markdown(f"<div style='text-align:center; padding:10px; border:2px solid {color}; border-radius:10px;'>Stock<br><h2 style='color:{color};'>{p_stock}</h2></div>", unsafe_allow_html=True)
+        st.markdown(f"""<div class='metric-card' style='border-left-color: #e67e22;'>
+            <div class='metric-title'>🧾 TOTAL FACTURES</div>
+            <div class='metric-value'>{len(df_f)}</div>
+        </div>""", unsafe_allow_html=True)
 
-    if st.button("➕ Ajouter au Panier", use_container_width=True):
-        if q > p_stock:
-            st.error("❌ Stock insuffisant!")
-        else:
-            st.session_state.cart.append({
-                "Désignation": s_item, 
-                "Unité": p_unit, 
-                "Qte": q, 
-                "P.U": p, 
-                "Total": q * p
-            })
-            st.rerun()
+    # إضافة مبيان (Graph) بحال اللي لتحت في الصورة
+    st.subheader("Évolution des Ventes")
+    if not df_f.empty:
+        # boucle بسيطة باش نقادو بيانات المبيان
+        chart_data = df_f.groupby(df_f.iloc[:, 1]).sum().iloc[:, 5] # التاريخ مع المجموع
+        st.line_chart(chart_data)
 
-# --- عرض السلة والتحميل ---
-if st.session_state.cart:
-    st.divider()
-    st.subheader("🧾 Récapitulatif")
-    st.table(pd.DataFrame(st.session_state.cart))
-
-    c1, c2 = st.columns(2)
-    with c1:
-        d_type = st.radio("Document", ["DEVIS", "FACTURE"], horizontal=True)
-        # الكليان من العمود رقم 2 فجدول Customers
-        clients = df_c.iloc[:, 2].tolist() if not df_c.empty else ["Passager"]
-        s_client = st.selectbox("Client", clients)
-        d_ref = st.text_input("Référence", value=f"MVAC-{datetime.now().strftime('%y%m%d%H%M')}")
-
-    with c2:
-        total_ht = sum(i['Total'] for i in st.session_state.cart)
-        ttc = total_ht * 1.2
-        st.metric("Total TTC", f"{ttc:,.2f} DH")
-
-        # --- توليد PDF ---
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.set_fill_color(41, 128, 185)
-        pdf.rect(0, 0, 210, 40, 'F')
-        pdf.set_font("Arial", 'B', 20); pdf.set_text_color(255, 255, 255)
-        pdf.cell(0, 20, txt=f"M-VAC SARL - {d_type}", ln=True, align='C')
-        
-        pdf.ln(25); pdf.set_text_color(0, 0, 0); pdf.set_font("Arial", 'B', 12)
-        pdf.cell(0, 8, txt=f"Ref: {d_ref} | Client: {s_client}", ln=True)
-        pdf.ln(5)
-        
-        # الجدول فـ PDF
-        pdf.set_fill_color(41, 128, 185); pdf.set_text_color(255, 255, 255)
-        pdf.cell(100, 10, "Designation", 1, 0, 'C', 1)
-        pdf.cell(40, 10, "Qte", 1, 0, 'C', 1)
-        pdf.cell(50, 10, "Total HT", 1, 1, 'C', 1)
-        
-        pdf.set_text_color(0, 0, 0); pdf.set_font("Arial", '', 11)
-        for item in st.session_state.cart:
-            pdf.cell(100, 10, str(item['Désignation']), 1)
-            pdf.cell(40, 10, str(item['Qte']), 1, 0, 'C')
-            pdf.cell(50, 10, f"{item['Total']:.2f}", 1, 1, 'R')
-
-        # تحويل الـ PDF لـ Bytes
-        p_bytes = pdf.output(dest='S').encode('latin-1')
-
-        if st.download_button("💾 Valider & Télécharger PDF", data=p_bytes, file_name=f"{d_ref}.pdf", mime="application/pdf"):
-            # 1. تحديث الستوك (فقط فالفاتورة)
-            if d_type == "FACTURE":
-                for item in st.session_state.cart:
-                    mask = df_m.iloc[:, 2] == item['Désignation']
-                    idx = df_m[mask].index
-                    if not idx.empty:
-                        curr = pd.to_numeric(df_m.iloc[idx[0], 4], errors='coerce')
-                        df_m.iloc[idx[0], 4] = float(curr if not pd.isna(curr) else 0) - float(item['Qte'])
-                save_data("Materiels", df_m)
-            
-            # 2. حفظ فـ Facturations
-            new_f = [len(df_f)+1, datetime.now().strftime("%d/%m/%Y"), d_ref, s_client, total_ht, total_ht*0.2, ttc, d_type]
-            save_data("Facturations", pd.concat([df_f, pd.DataFrame([new_f], columns=df_f.columns[:8])], ignore_index=True))
-            
-            st.session_state.cart = []
-            st.success("✅ العمليّة تمّت بنجاح!")
-            st.rerun()
-
-    if st.button("🗑️ Vider le Panier"):
-        st.session_state.cart = []
-        st.rerun()
+# ---------------------------------------------------------
+# 5. وظيفة المبيعات (Ventes) - الكود اللي خدمنا عليه
+# ---------------------------------------------------------
+elif menu == "🛒 Ventes":
+    st.subheader("Gestion des Ventes & Factures")
+    # ... هنا كيكون الكود ديال السلة والـ PDF اللي عطيتهوم ليك سابقا ...
+    st.info("هنا كتحط كود إضافة السلع والـ PDF")

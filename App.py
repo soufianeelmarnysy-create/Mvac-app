@@ -327,3 +327,6 @@ elif menu == "🛒 Ventes & Factures":
             st.rerun()
 
        
+ if st.button("🗑️ Vider le panier"):
+            st.session_state.cart = []
+            st.rerun()

@@ -172,125 +172,158 @@ from datetime import datetime
 from fpdf import FPDF
 import base64
 
-# --- وظيفة عرض الـ PDF في الصفحة ---
+# --- دالة عرض الـ PDF المباشر ---
 def display_pdf(pdf_bytes):
     base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-    pdf_display = f'<embed src="data:application/pdf;base64,{base64_pdf}" width="100%" height="600" type="application/pdf">'
+    pdf_display = f'<embed src="data:application/pdf;base64,{base64_pdf}" width="100%" height="500" type="application/pdf">'
     st.markdown(pdf_display, unsafe_allow_html=True)
 
-if page == "📄 Devis / Facture":
-    st.header("📄 Création de Document PRO")
+# --- واجهة الصفحة ---
+st.set_page_config(layout="wide") # باش يجي العرض كبير بحال التصويرة
 
-    # 1. Load Initial (البيانات من الصور لي صفتي)
+if page == "📄 Devis / Facture":
+    # 1. تحميل البيانات (Load Data)
     df_c = load_data("Customers")
     df_m = load_data("Materiels")
     df_f = load_data("Facturations")
     df_d = load_data("Devis")
 
+    # تهيئة السلة والـ PDF
     if 'cart' not in st.session_state: st.session_state.cart = []
-    if 'pdf_ready' not in st.session_state: st.session_state.pdf_ready = None
+    if 'pdf_preview' not in st.session_state: st.session_state.pdf_preview = None
 
-    # 2. إعدادات الوثيقة
+    st.title("📄 Système de Facturation Intelligent")
+    st.divider()
+
+    # --- الجزء 1: اختيار النوع والزبون ---
     with st.container(border=True):
-        col1, col2, col3 = st.columns([1, 2, 1])
-        doc_type = col1.selectbox("Document", ["DEVIS", "FACTURE"])
-        
-        # ComboBox Clients (العمود 2: الاسم/الشركة)
-        clients = df_c.iloc[:, 2].tolist() if not df_c.empty else ["Passager"]
-        selected_client = col2.selectbox("Sélectionner Client", clients)
-        
-        doc_ref = col3.text_input("Référence", value=f"{doc_type[0]}-{datetime.now().strftime('%y%m%d%H%M')}")
+        col_t1, col_t2, col_t3 = st.columns([1, 2, 1])
+        with col_t1:
+            doc_type = st.radio("📑 Type de Document", ["DEVIS", "FACTURE"], horizontal=True)
+        with col_t2:
+            clients_list = df_c.iloc[:, 2].dropna().tolist() if not df_c.empty else ["Client Standard"]
+            sel_client = st.selectbox("👤 Sélectionner le Client", clients_list)
+        with col_t3:
+            doc_ref = st.text_input("N° Document", value=f"{doc_type[0]}-{datetime.now().strftime('%y%m%d%H%M')}")
 
-    # 3. ComboBox Articles & Infos
+    # --- الجزء 2: اختيار السلعة مع عرض الستوك (Stock Check) ---
     with st.container(border=True):
         st.subheader("📦 Sélection des Articles")
-        a1, a2, a3, a4 = st.columns([3, 1, 1, 1])
+        a1, a2, a3, a4, a5 = st.columns([3, 1, 1, 1, 1])
         
-        # ComboBox Articles (العمود 2: السلعة)
-        articles = df_m.iloc[:, 2].tolist() if not df_m.empty else []
-        selected_art = a1.selectbox("Article", [""] + articles)
+        # لستة السلع من العمود 2
+        m_list = df_m.iloc[:, 2].dropna().tolist() if not df_m.empty else []
+        sel_art = a1.selectbox("🔍 Choisir un article", [""] + m_list)
         
-        u_val, p_ht = "", 0.0
-        if selected_art:
-            row = df_m[df_m.iloc[:, 2] == selected_art].iloc[0]
-            u_val = row.iloc[3] # الوحدة
-            p_ht = float(str(row.iloc[5]).replace(',', '.')) # ثمن الوحدة HT
+        u_v, p_v, s_v = "", 0.0, 0.0
+        if sel_art:
+            row = df_m[df_m.iloc[:, 2] == sel_art].iloc[0]
+            u_v = str(row.iloc[3]) # الوحدة (العمود 3)
+            s_v = float(row.iloc[4]) # الستوك الحالي (العمود 4)
+            p_v = float(str(row.iloc[5]).replace(',', '.')) # الثمن HT (العمود 5)
         
-        a2.text_input("Unité", value=u_val, disabled=True)
-        qte = a3.number_input("Quantité", min_value=0.1, value=1.0)
-        price_ht = a4.number_input("Prix HT (DH)", value=float(p_ht))
+        # عرض الستوك بلون تنبيهي
+        color = "green" if s_v > 0 else "red"
+        a2.markdown(f"<p style='text-align:center;'>Stock<br><b style='color:{color}; font-size:20px;'>{s_v}</b></p>", unsafe_allow_html=True)
         
-        if st.button("➕ Ajouter au Tableau", use_container_width=True):
-            if selected_art:
-                st.session_state.cart.append({
-                    "Désignation": selected_art, "Unité": u_val,
-                    "Qte": qte, "P.U HT": price_ht, "Total HT": qte * price_ht
-                })
-                st.rerun()
+        a3.text_input("Unité", value=u_v, disabled=True)
+        q_in = a4.number_input("Qté", min_value=0.1, value=1.0, step=1.0)
+        p_in = a5.number_input("Prix HT", value=p_v)
 
-    # 4. Tableau interactif (عرض ومسح)
+        if st.button("➕ Ajouter à la liste", use_container_width=True, type="secondary"):
+            if sel_art:
+                if doc_type == "FACTURE" and q_in > s_v:
+                    st.error(f"❌ Stock insuffisant ! (Max: {s_v})")
+                else:
+                    st.session_state.cart.append({
+                        "Désignation": sel_art, "Unité": u_v,
+                        "Qte": q_in, "PU_HT": p_in, "Total_HT": q_in * p_in
+                    })
+                    st.rerun()
+
+    # --- الجزء 3: الجدول التفاعلي (Tableau interactif) ---
     if st.session_state.cart:
-        st.divider()
-        df_cart = pd.DataFrame(st.session_state.cart)
-        st.subheader("📑 Détails de la commande")
+        st.subheader("📋 Liste des Articles Sélectionnés")
+        # تحويل السلة لـ DataFrame باش يبان جدول ناضي
+        df_display = pd.DataFrame(st.session_state.cart)
         
+        # عرض الجدول مع إمكانية المسح (IconButton)
         for i, item in enumerate(st.session_state.cart):
-            c_art, c_del = st.columns([10, 1])
-            c_art.info(f"{item['Désignation']} | {item['Qte']} {item['Unité']} x {item['P.U HT']} = {item['Total HT']:.2f} DH")
-            if c_del.button("❌", key=f"del_{i}"):
+            row_col = st.columns([5, 1, 1, 1, 1, 0.5])
+            row_col[0].write(f"**{item['Désignation']}**")
+            row_col[1].write(f"{item['Unité']}")
+            row_col[2].write(f"{item['Qte']}")
+            row_col[3].write(f"{item['PU_HT']:.2f}")
+            row_col[4].write(f"**{item['Total_HT']:.2f}**")
+            if row_col[5].button("🗑️", key=f"del_{i}"):
                 st.session_state.cart.pop(i)
                 st.rerun()
 
-        # الحسابات
-        total_ht = sum(i['Total HT'] for i in st.session_state.cart)
-        tva = total_ht * 0.20
-        total_ttc = total_ht + tva
+        # الحسابات الإجمالية
+        ht = sum(i['Total_HT'] for i in st.session_state.cart)
+        tva = ht * 0.20
+        ttc = ht + tva
+
+        st.divider()
+        res_c1, res_c2 = st.columns([2, 1])
+        with res_c2:
+            st.markdown(f"""
+            | DÉTAILS | MONTANT (DH) |
+            | :--- | :--- |
+            | **Total HT** | {ht:,.2f} |
+            | **TVA (20%)** | {tva:,.2f} |
+            | **TOTAL TTC** | <b style='font-size:22px; color:#2980b9;'>{ttc:,.2f}</b> |
+            """, unsafe_allow_html=True)
+
+        # --- الجزء 4: الحفظ والمعاينة (Enregistrer & Preview) ---
+        st.divider()
+        btn_col1, btn_col2 = st.columns(2)
         
-        st.write(f"**Total HT:** {total_ht:.2f} DH | **TVA (20%):** {tva:.2f} DH")
-        st.success(f"### TOTAL TTC: {total_ttc:.2f} DH")
+        with btn_col1:
+            if st.button("💾 Valider & Enregistrer dans Sheets", type="primary", use_container_width=True):
+                # 1. تحديث الستوك (فقط فالفاتورة)
+                if doc_type == "FACTURE":
+                    df_m_new = load_data("Materiels")
+                    for item in st.session_state.cart:
+                        idx = df_m_new[df_m_new.iloc[:, 2] == item['Désignation']].index[0]
+                        df_m_new.iloc[idx, 4] = float(df_m_new.iloc[idx, 4]) - item['Qte']
+                    save_data("Materiels", df_m_new)
+                
+                # 2. حفظ الفاتورة/الدوڤي
+                sheet_target = "Facturations" if doc_type == "FACTURE" else "Devis"
+                df_target = df_f if doc_type == "FACTURE" else df_d
+                new_row = [len(df_target)+1, datetime.now().strftime("%d/%m/%Y"), doc_ref, sel_client, ht, tva, ttc]
+                save_data(sheet_target, pd.concat([df_target, pd.DataFrame([new_row], columns=df_target.columns[:7])]))
+                
+                # 3. توليد الـ PDF للمعاينة
+                pdf = FPDF()
+                pdf.add_page()
+                pdf.set_font("Arial", 'B', 16)
+                pdf.cell(0, 10, f"M-VAC PRO - {doc_type}", 0, 1, 'C')
+                pdf.set_font("Arial", '', 12)
+                pdf.cell(0, 10, f"Client: {sel_client} | Ref: {doc_ref} | Date: {datetime.now().strftime('%d/%m/%Y')}", 0, 1)
+                pdf.ln(10)
+                pdf.cell(100, 10, "Article", 1); pdf.cell(20, 10, "Qte", 1); pdf.cell(30, 10, "P.U", 1); pdf.cell(40, 10, "Total", 1, 1)
+                for item in st.session_state.cart:
+                    pdf.cell(100, 10, str(item['Désignation']), 1)
+                    pdf.cell(20, 10, str(item['Qte']), 1)
+                    pdf.cell(30, 10, str(item['PU_HT']), 1)
+                    pdf.cell(40, 10, f"{item['Total_HT']:.2f}", 1, 1)
+                
+                st.session_state.pdf_preview = pdf.output(dest='S').encode('latin-1')
+                st.success("✅ Enregistré avec succès ! Vous pouvez maintenant voir et télécharger le PDF.")
 
-        # 5. Enregistrer & Preview PDF
-        if st.button("💾 Enregistrer le document", type="primary", use_container_width=True):
-            # تحديد الصفحة المستهدفة في Sheets
-            target_sheet = "Facturations" if doc_type == "FACTURE" else "Devis"
-            target_df = df_f if doc_type == "FACTURE" else df_d
-            
-            # تسجيل البيانات
-            new_data = [len(target_df)+1, datetime.now().strftime("%d/%m/%Y"), doc_ref, selected_client, total_ht, tva, total_ttc]
-            save_data(target_sheet, pd.concat([target_df, pd.DataFrame([new_data], columns=target_df.columns[:7])]))
-            
-            # توليد PDF
-            pdf = FPDF()
-            pdf.add_page()
-            pdf.set_font("Arial", 'B', 16)
-            pdf.cell(0, 10, f"M-VAC PRO - {doc_type}", ln=True, align='C')
-            pdf.ln(10)
-            pdf.set_font("Arial", '', 12)
-            pdf.cell(0, 10, f"Client: {selected_client} | Ref: {doc_ref}", ln=True)
-            
-            # الجدول في PDF
-            pdf.set_fill_color(240, 240, 240)
-            pdf.cell(100, 10, "Article", 1, 0, 'C', 1)
-            pdf.cell(40, 10, "Qte", 1, 0, 'C', 1)
-            pdf.cell(50, 10, "Total HT", 1, 1, 'C', 1)
-            for item in st.session_state.cart:
-                pdf.cell(100, 10, str(item['Désignation']), 1)
-                pdf.cell(40, 10, str(item['Qte']), 1)
-                pdf.cell(50, 10, f"{item['Total HT']:.2f}", 1, 1)
+        # عرض الـ PDF والتحميل
+        if st.session_state.pdf_preview:
+            with st.expander("👁️ Cliquer هنا لمشاهدة الـ PDF قبل التحميل", expanded=True):
+                display_pdf(st.session_state.pdf_preview)
+                st.download_button("📥 Télécharger le PDF Officiel", 
+                                 data=st.session_state.pdf_preview, 
+                                 file_name=f"{doc_ref}.pdf", 
+                                 mime="application/pdf", 
+                                 use_container_width=True)
 
-            st.session_state.pdf_ready = pdf.output(dest='S').encode('latin-1')
-            st.success(f"✅ {doc_type} enregistré avec succès !")
-
-        # عرض وتحميل PDF
-        if st.session_state.pdf_ready:
-            st.divider()
-            st.subheader("👁️ Aperçu du document")
-            display_pdf(st.session_state.pdf_ready)
-            
-            st.download_button(
-                label="📥 Télécharger le PDF",
-                data=st.session_state.pdf_ready,
-                file_name=f"{doc_ref}.pdf",
-                mime="application/pdf",
-                use_container_width=True
-            )
+    if st.button("🗑️ Vider le panier"):
+        st.session_state.cart = []
+        st.session_state.pdf_preview = None
+        st.rerun()

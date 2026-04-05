@@ -174,13 +174,32 @@ from num2words import num2words
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-# --- 1. إعداد Google Sheets ---
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gsheets"], scope)
-client = gspread.authorize(creds)
-SHEET_URL = st.secrets["gsheets"]["spreadsheet"]
+# -------------------------------
+# 1️⃣ إعداد Google Sheets
+# -------------------------------
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1D5ogjG53HMl791W1RfHDEk0ngom0P4uf-cCPWgBjwAs/edit"  # ضع URL ديالك هنا
 
-# --- 2. Load & Save Data Functions ---
+# JSON ديال Service Account مباشرة فالكود (بدّل القيم بالقيم ديالك)
+SERVICE_ACCOUNT_INFO = {
+  "type": "service_account",
+  "project_id": "project-id",
+  "private_key_id": "private-key-id",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nYOUR_KEY\n-----END PRIVATE KEY-----\n",
+  "client_email": "service-account@project.iam.gserviceaccount.com",
+  "client_id": "client-id",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "client-cert-url"
+}
+
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds = ServiceAccountCredentials.from_json_keyfile_dict(SERVICE_ACCOUNT_INFO, scope)
+client = gspread.authorize(creds)
+
+# -------------------------------
+# 2️⃣ Load/Save data functions
+# -------------------------------
 def load_data(sheet_name):
     try:
         sh = client.open_by_url(SHEET_URL)
@@ -200,25 +219,31 @@ def save_data(sheet_name, df):
     except Exception as e:
         st.error(f"Error saving {sheet_name}: {e}")
 
-# --- 3. Session State pour Panier ---
+# -------------------------------
+# 3️⃣ Session State pour Panier
+# -------------------------------
 if 'cart' not in st.session_state:
     st.session_state.cart = []
 
-# --- 4. Load Sheets ---
-df_m = load_data("Materiels")      # Stock / Products
-df_c = load_data("Customers")      # Clients
-df_f = load_data("Facturations")   # Factures
+# -------------------------------
+# 4️⃣ Load Sheets
+# -------------------------------
+df_m = load_data("Materiels")
+df_c = load_data("Customers")
+df_f = load_data("Facturations")
 
 st.title("📄 M-VAC PRO : Facturation")
 
-# --- 5. Ajouter au Panier ---
+# -------------------------------
+# 5️⃣ Ajouter au panier
+# -------------------------------
 if not df_m.empty:
-    items_list = df_m['Désignation'].unique().tolist()
+    items_list = df_m['Désignation'].tolist()
     s_item = st.selectbox("Sélectionner l'Article", items_list)
     row = df_m[df_m['Désignation'] == s_item].iloc[0]
-    p_stock = float(row['Stock'])
-    p_price = float(row['Prix_HT'])
-    p_unit = str(row['Unité'])
+    p_stock = float(row.get('Stock', 0))
+    p_price = float(row.get('Prix_HT', 0))
+    p_unit = str(row.get('Unité', 'U'))
 
     col1, col2 = st.columns([3,1])
     with col1:
@@ -226,7 +251,7 @@ if not df_m.empty:
         p = st.number_input("Prix HT (DH)", value=p_price)
     with col2:
         color = "green" if p_stock > 0 else "red"
-        st.markdown(f"<div style='text-align:center; color:{color}; font-weight:bold;'>Stock: {p_stock}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='text-align:center; color:{color};'>Stock: {p_stock}</div>", unsafe_allow_html=True)
 
     if st.button("➕ Ajouter au Panier"):
         if q > p_stock:
@@ -235,7 +260,9 @@ if not df_m.empty:
             st.session_state.cart.append({"Désignation": s_item, "Unité": p_unit, "Qte": q, "P.U": p, "Total": q*p})
             st.rerun()
 
-# --- 6. Afficher Panier et générer PDF ---
+# -------------------------------
+# 6️⃣ Afficher Panier et PDF
+# -------------------------------
 if st.session_state.cart:
     st.subheader("🧾 Panier")
     df_cart = pd.DataFrame(st.session_state.cart)
@@ -254,7 +281,7 @@ if st.session_state.cart:
         st.metric("Total TTC", f"{ttc:,.2f} DH")
         st.write(f"En lettres: {num2words(ttc, lang='fr')} DH")
 
-    # --- PDF Generation ---
+    # PDF
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", 'B', 16)
@@ -282,14 +309,13 @@ if st.session_state.cart:
     pdf_bytes = pdf.output(dest='S').encode('latin-1')
 
     if st.download_button("💾 Valider & Télécharger PDF", data=pdf_bytes, file_name=f"{d_ref}.pdf", mime="application/pdf"):
-        # Update Stock if FACTURE
         if d_type == "FACTURE":
             for item in st.session_state.cart:
                 idx = df_m[df_m['Désignation']==item['Désignation']].index
                 if not idx.empty:
                     df_m.loc[idx[0],'Stock'] = str(float(df_m.loc[idx[0],'Stock']) - float(item['Qte']))
             save_data("Materiels", df_m)
-        # Save Facturations
+
         new_f = [len(df_f)+1, datetime.now().strftime("%d/%m/%Y"), d_ref, s_client, total_ht, total_ht*0.2, ttc, d_type]
         save_data("Facturations", pd.concat([df_f,pd.DataFrame([new_f],columns=df_f.columns[:8])],ignore_index=True))
         st.session_state.cart = []

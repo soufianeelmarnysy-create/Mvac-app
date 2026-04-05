@@ -294,7 +294,7 @@ def show_facturation_page():
         t_ttc = t_ht + t_tva
 
         col_tot1, col_tot2 = st.columns([2, 1])
-        with col_tot2
+        with col_tot2:
             
             st.success("✅ Document enregistré avec succès !")
             st.download_button("📥 Télécharger le PDF", data=pdf_data, file_name=f"{d_ref}.pdf", mime="application/pdf")

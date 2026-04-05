@@ -169,95 +169,124 @@ elif page == "📦 إدارة السلعة":
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+from fpdf import FPDF
+import base64
 
-# --- الجزء الخاص بصفحة Devis / Facture ---
+# --- 1. دالة توليد و تحميل الـ PDF ---
+def generate_pdf(doc_type, ref, client, items, total_ht, tva, ttc):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(0, 10, f"M-VAC PRO - {doc_type}", ln=True, align='C')
+    pdf.set_font("Arial", '', 12)
+    pdf.ln(10)
+    pdf.cell(0, 10, f"Reference: {ref}", ln=True)
+    pdf.cell(0, 10, f"Client: {client}", ln=True)
+    pdf.cell(0, 10, f"Date: {datetime.now().strftime('%d/%m/%Y')}", ln=True)
+    pdf.ln(10)
+    
+    # الجدول
+    pdf.set_fill_color(200, 220, 255)
+    pdf.cell(80, 10, "Article", 1, 0, 'C', True)
+    pdf.cell(30, 10, "Qte", 1, 0, 'C', True)
+    pdf.cell(40, 10, "P.U HT", 1, 0, 'C', True)
+    pdf.cell(40, 10, "Total HT", 1, 1, 'C', True)
+    
+    for item in items:
+        pdf.cell(80, 10, str(item['Désignation']), 1)
+        pdf.cell(30, 10, str(item['Qte']), 1, 0, 'C')
+        pdf.cell(40, 10, f"{item['PU_HT']:.2f}", 1, 0, 'C')
+        pdf.cell(40, 10, f"{item['Total']:.2f}", 1, 1, 'C')
+    
+    pdf.ln(10)
+    pdf.cell(150, 10, "Total HT", 0, 0, 'R')
+    pdf.cell(40, 10, f"{total_ht:.2f} DH", 1, 1, 'C')
+    pdf.cell(150, 10, "TVA (20%)", 0, 0, 'R')
+    pdf.cell(40, 10, f"{tva:.2f} DH", 1, 1, 'C')
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(150, 10, "TOTAL TTC", 0, 0, 'R')
+    pdf.cell(40, 10, f"{ttc:.2f} DH", 1, 1, 'C')
+    
+    return pdf.output(dest='S').encode('latin-1')
+
+# --- 2. منطق الصفحة الرئيسية ---
 if page == "📄 Devis / Facture":
-    st.header("📄 Création de Document")
+    st.header("📄 Création Devis & Facture")
 
-    # 1. تحميل البيانات من الصور اللي صفتي
-    df_c = load_data("Customers")    #
-    df_m = load_data("Materiels")     #
-    df_f = load_data("Facturations") #
-    df_d = load_data("Devis")        #
+    # تحميل الداتا مع مسح السطور الخاوية باش ما تبانش خاوية
+    df_c = load_data("Customers").dropna(how='all')
+    df_m = load_data("Materiels").dropna(how='all')
+    df_f = load_data("Facturations").dropna(how='all')
+    df_d = load_data("Devis").dropna(how='all')
 
     if 'cart' not in st.session_state: st.session_state.cart = []
 
-    # --- الجزء 1: معلومات الكليان ---
+    # --- القسم 1: معلومات المستند ---
     with st.container(border=True):
         c1, c2, c3 = st.columns([1, 2, 1])
         doc_type = c1.selectbox("Type", ["DEVIS", "FACTURE"])
-        clients = df_c.iloc[:, 2].dropna().unique().tolist() if not df_c.empty else ["Passager"]
-        s_client = c2.selectbox("Sélectionner Client", clients)
+        # التصحيح: جلب أسماء الكليان من العمود 2
+        clients = df_c.iloc[:, 2].dropna().tolist() if not df_c.empty else ["Passager"]
+        s_client = c2.selectbox("Client", clients)
         d_ref = c3.text_input("Référence", value=f"{doc_type[0]}-{datetime.now().strftime('%d%H%M')}")
 
-    # --- الجزء 2: اختيار السلعة (هنا فين كاين الحل) ---
+    # --- القسم 2: اختيار السلعة ---
     with st.container(border=True):
-        st.subheader("📦 Sélection des Articles")
+        articles = df_m.iloc[:, 2].dropna().tolist() if not df_m.empty else []
+        sel_art = st.selectbox("Choisir l'article", [""] + articles)
         
-        # لستة السلع من العمود "السلعة"
-        m_list = df_m.iloc[:, 2].dropna().unique().tolist() if not df_m.empty else []
-        
-        # كنزيدو on_change=st.rerun باش غير تختار السلعة، الصفحة تحس بالتغيير
-        selected_art = st.selectbox("Choisir l'article", [""] + m_list, key="art_selector")
-
         u_v, s_v, p_v = "", 0.0, 0.0
-        
-        if selected_art != "":
-            # كنجبدو السطر الخاص بالسلعة اللي تختارات
-            item_info = df_m[df_m.iloc[:, 2] == selected_art].iloc[0]
-            u_v = str(item_info.iloc[3])  # الوحدة (U, Kg, M...)
-            s_v = float(item_info.iloc[4]) # الكمية في الستوك
-            # تنظيف الثمن من أي فاصلة
-            try:
-                p_v = float(str(item_info.iloc[5]).replace(',', '.'))
-            except:
-                p_v = 0.0
+        if sel_art:
+            row = df_m[df_m.iloc[:, 2] == sel_art].iloc[0]
+            u_v, s_v = str(row.iloc[3]), float(row.iloc[4])
+            p_v = float(str(row.iloc[5]).replace(',', '.'))
 
-        # عرض المربعات اللي طلبتي (Unité & Stock)
-        col_info1, col_info2, col_qte, col_prix, col_add = st.columns([1, 1, 1, 1, 1])
-        
-        with col_info1:
-            st.markdown(f"<div style='border:1px solid #ddd; padding:10px; border-radius:5px; text-align:center;'>Unité<br><b>{u_v}</b></div>", unsafe_allow_html=True)
-        with col_info2:
-            color = "green" if s_v > 0 else "red"
-            st.markdown(f"<div style='border:1px solid {color}; padding:10px; border-radius:5px; text-align:center;'>Stock<br><b style='color:{color};'>{s_v}</b></div>", unsafe_allow_html=True)
-        
-        q_in = col_qte.number_input("Qté", min_value=0.1, value=1.0)
-        p_in = col_prix.number_input("Prix HT", value=p_v) # دابا الثمن غايطلع أوتوماتيك هنا
+        i1, i2, i3, i4, i5 = st.columns([1, 1, 1, 1, 1])
+        i1.metric("Unité", u_v)
+        i2.metric("Stock", s_v, delta_color="normal")
+        q_in = i3.number_input("Qté", min_value=0.1, value=1.0)
+        p_in = i4.number_input("Prix HT", value=p_v)
 
-        if col_add.button("➕ Ajouter", use_container_width=True):
-            if selected_art:
-                # تنقيص الستوك في الحال إلى كانت FACTURE
+        if i5.button("➕ Ajouter", use_container_width=True):
+            if sel_art:
+                st.session_state.cart.append({
+                    "Désignation": sel_art, "Unité": u_v, "Qte": q_in, "PU_HT": p_in, "Total": q_in * p_in
+                })
+                # تنقيص الستوك فورا في الداتا
                 if doc_type == "FACTURE":
-                    if q_in <= s_v:
-                        idx = df_m[df_m.iloc[:, 2] == selected_art].index[0]
-                        df_m.iloc[idx, 4] = s_v - q_in
-                        save_data("Materiels", df_m) # حفظ التغيير فـ Sheets
-                        st.session_state.cart.append({
-                            "Désignation": selected_art, "Unité": u_v, "Qte": q_in, "PU_HT": p_in, "Total": q_in * p_in
-                        })
-                        st.rerun()
-                    else:
-                        st.error("Stock insuffisant !")
-                else:
-                    # Devis ما كينقصش الستوك
-                    st.session_state.cart.append({
-                        "Désignation": selected_art, "Unité": u_v, "Qte": q_in, "PU_HT": p_in, "Total": q_in * p_in
-                    })
-                    st.rerun()
+                    idx = df_m[df_m.iloc[:, 2] == sel_art].index[0]
+                    df_m.iloc[idx, 4] = s_v - q_in
+                    save_data("Materiels", df_m)
+                st.rerun()
 
-    # --- الجزء 3: الجدول النهائي والحفظ ---
+    # --- القسم 3: عرض الجدول و زر الحفظ (الذي كان ينقصك) ---
     if st.session_state.cart:
-        st.table(pd.DataFrame(st.session_state.cart)) # جدول بسيط وسريع
-        
+        st.subheader("📋 Liste des Articles")
+        df_cart = pd.DataFrame(st.session_state.cart)
+        st.dataframe(df_cart, use_container_width=True)
+
+        t_ht = df_cart['Total'].sum()
+        t_tva = t_ht * 0.2
+        t_ttc = t_ht + t_tva
+
+        st.write(f"**Total HT:** {t_ht:,.2f} | **TVA:** {t_tva:,.2f} | **TOTAL TTC:** {t_ttc:,.2f} DH")
+
+        # --- زر الحفظ النهائي و PDF ---
         if st.button("💾 Enregistrer Document Final", type="primary", use_container_width=True):
-            # حفظ في Facturations أو Devis حسب الاختيار
-            target_sheet = "Facturations" if doc_type == "FACTURE" else "Devis"
-            target_df = df_f if doc_type == "FACTURE" else df_d
+            # 1. الحفظ في Google Sheets
+            target = "Facturations" if doc_type == "FACTURE" else "Devis"
+            existing_df = df_f if doc_type == "FACTURE" else df_d
+            new_row = [len(existing_df)+1, datetime.now().strftime("%d/%m/%Y"), d_ref, s_client, t_ht, t_tva, t_ttc]
             
-            new_row = [len(target_df)+1, datetime.now().strftime("%d/%m/%Y"), d_ref, s_client, sum(i['Total'] for i in st.session_state.cart)]
-            # (تكملة الأعمدة حسب الجدول ديالك...)
+            # إضافة السطر الجديد
+            updated_df = pd.concat([existing_df, pd.DataFrame([new_row], columns=existing_df.columns[:7])])
+            save_data(target, updated_df)
             
-            st.success(f"Document {d_ref} enregistré !")
-            st.session_state.cart = []
-            st.rerun()
+            # 2. توليد PDF
+            pdf_data = generate_pdf(doc_type, d_ref, s_client, st.session_state.cart, t_ht, t_tva, t_ttc)
+            
+            st.success("✅ Document enregistré avec succès !")
+            st.download_button("📥 Télécharger le PDF", data=pdf_data, file_name=f"{d_ref}.pdf", mime="application/pdf")
+            
+            # مسح السلة بعد الحفظ
+            # st.session_state.cart = []

@@ -171,9 +171,8 @@ import pandas as pd
 from fpdf import FPDF
 from datetime import datetime
 from num2words import num2words
-import io
-from oauth2client.service_account import ServiceAccountCredentials
 import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
 # --- 1. إعداد Google Sheets ---
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -181,6 +180,7 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gsheets"], 
 client = gspread.authorize(creds)
 SHEET_URL = st.secrets["gsheets"]["spreadsheet"]
 
+# --- 2. Load & Save Data Functions ---
 def load_data(sheet_name):
     try:
         sh = client.open_by_url(SHEET_URL)
@@ -200,23 +200,23 @@ def save_data(sheet_name, df):
     except Exception as e:
         st.error(f"Error saving {sheet_name}: {e}")
 
-# --- 2. Session state pour Panier ---
+# --- 3. Session State pour Panier ---
 if 'cart' not in st.session_state:
     st.session_state.cart = []
 
-# --- 3. Load Sheets ---
-df_m = load_data("Materiels")
-df_c = load_data("Customers")
-df_f = load_data("Facturations")
+# --- 4. Load Sheets ---
+df_m = load_data("Materiels")      # Stock / Products
+df_c = load_data("Customers")      # Clients
+df_f = load_data("Facturations")   # Factures
 
 st.title("📄 M-VAC PRO : Facturation")
 
-# --- 4. Ajouter au panier ---
+# --- 5. Ajouter au Panier ---
 if not df_m.empty:
     items_list = df_m['Désignation'].unique().tolist()
     s_item = st.selectbox("Sélectionner l'Article", items_list)
     row = df_m[df_m['Désignation'] == s_item].iloc[0]
-    p_stock = pd.to_numeric(row['Stock'], errors='coerce')
+    p_stock = float(row['Stock'])
     p_price = float(row['Prix_HT'])
     p_unit = str(row['Unité'])
 
@@ -226,7 +226,7 @@ if not df_m.empty:
         p = st.number_input("Prix HT (DH)", value=p_price)
     with col2:
         color = "green" if p_stock > 0 else "red"
-        st.markdown(f"<div style='text-align:center; color:{color};'>Stock: {p_stock}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='text-align:center; color:{color}; font-weight:bold;'>Stock: {p_stock}</div>", unsafe_allow_html=True)
 
     if st.button("➕ Ajouter au Panier"):
         if q > p_stock:
@@ -235,7 +235,7 @@ if not df_m.empty:
             st.session_state.cart.append({"Désignation": s_item, "Unité": p_unit, "Qte": q, "P.U": p, "Total": q*p})
             st.rerun()
 
-# --- 5. Afficher Panier et générer PDF ---
+# --- 6. Afficher Panier et générer PDF ---
 if st.session_state.cart:
     st.subheader("🧾 Panier")
     df_cart = pd.DataFrame(st.session_state.cart)
@@ -254,25 +254,21 @@ if st.session_state.cart:
         st.metric("Total TTC", f"{ttc:,.2f} DH")
         st.write(f"En lettres: {num2words(ttc, lang='fr')} DH")
 
-    # --- PDF ---
+    # --- PDF Generation ---
     pdf = FPDF()
     pdf.add_page()
-    # Logo
-    pdf.image("mvac_logo.png", 10, 8, 33)
     pdf.set_font("Arial", 'B', 16)
     pdf.cell(0, 10, f"M-VAC SARL - {d_type}", ln=True, align="C")
     pdf.ln(10)
     pdf.set_font("Arial", '', 12)
     pdf.cell(0, 8, f"Ref: {d_ref} | Client: {s_client}", ln=True)
     pdf.ln(5)
-    # Table header
     pdf.set_fill_color(41,128,185)
     pdf.set_text_color(255,255,255)
     pdf.cell(80,10,"Designation",1,0,'C',1)
     pdf.cell(30,10,"Qte",1,0,'C',1)
     pdf.cell(40,10,"P.U",1,0,'C',1)
     pdf.cell(40,10,"Total HT",1,1,'C',1)
-    # Table rows
     pdf.set_text_color(0,0,0)
     for item in st.session_state.cart:
         pdf.cell(80,10,str(item['Désignation']),1)
@@ -291,8 +287,7 @@ if st.session_state.cart:
             for item in st.session_state.cart:
                 idx = df_m[df_m['Désignation']==item['Désignation']].index
                 if not idx.empty:
-                    curr = float(df_m.loc[idx[0],'Stock'])
-                    df_m.loc[idx[0],'Stock'] = curr - float(item['Qte'])
+                    df_m.loc[idx[0],'Stock'] = str(float(df_m.loc[idx[0],'Stock']) - float(item['Qte']))
             save_data("Materiels", df_m)
         # Save Facturations
         new_f = [len(df_f)+1, datetime.now().strftime("%d/%m/%Y"), d_ref, s_client, total_ht, total_ht*0.2, ttc, d_type]

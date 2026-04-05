@@ -168,86 +168,164 @@ elif page == "📦 إدارة السلعة":
 # ========================================================================================================================================================================
 import streamlit as st
 import pandas as pd
-from streamlit_gsheets import GSheetsConnection
+from fpdf import FPDF
+from datetime import datetime
+from num2words import num2words
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
-# 1. إعداد الصفحة والستايل (CSS)
-st.set_page_config(page_title="M-VAC DASHBOARD", layout="wide")
+# ==========================================
+# 1️⃣ الإعدادات والستايل (التصميم الاحترافي)
+# ==========================================
+st.set_page_config(page_title="M-VAC PRO", layout="wide")
 
-# هاد الجزء هو اللي كيعطي الستايل ديال الصورة (الألوان، الحواف، الخطوط)
 st.markdown("""
     <style>
-        /* ستايل الخلفية والخطوط */
         .main { background-color: #f8f9fa; }
-        
-        /* ستايل الكارط (Cards) بحال اللي في الصورة */
-        .metric-card {
-            background-color: white;
-            padding: 20px;
-            border-radius: 15px;
+        .stMetric { background-color: white; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .article-card { 
+            background: white; padding: 20px; border-radius: 15px; 
+            border-left: 5px solid #2980b9; margin-bottom: 20px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            border-left: 5px solid #2980b9;
-            margin-bottom: 20px;
         }
-        
-        /* ستايل العنوان داخل الكارط */
-        .metric-title { color: #7f8c8d; font-size: 14px; font-weight: bold; }
-        .metric-value { color: #2c3e50; font-size: 24px; font-weight: bold; }
     </style>
 """, unsafe_allow_html=True)
 
-# 2. الربط مع البيانات
-conn = st.connection("gsheets", type=GSheetsConnection)
+# ==========================================
+# 2️⃣ الربط مع Google Sheets (SERVICE_ACCOUNT)
+# ==========================================
+# نصيحة: تأكد أن SERVICE_ACCOUNT_INFO فيه كاع السطور (بما فيهم private_key_id)
+@st.cache_resource
+def connect_gsheets():
+    # حط الـ JSON ديالك كامل هنا وسط الأقواس {}
+    SERVICE_ACCOUNT_INFO = st.secrets["gcp_service_account"] # هادي أحسن طريقة فـ Streamlit Cloud
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(SERVICE_ACCOUNT_INFO, scope)
+    return gspread.authorize(creds)
 
-def get_data(sheet):
-    return conn.read(worksheet=sheet, ttl="0m")
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1D5ogjG53HMl791W1RfHDEk0ngom0P4uf-cCPWgBjwAs/edit"
 
-# ---------------------------------------------------------
-# 3. الـ SIDEBAR (القائمة الجانبية بحال الصورة)
-# ---------------------------------------------------------
+try:
+    client = connect_gsheets()
+    sh = client.open_by_url(SHEET_URL)
+except Exception as e:
+    st.error(f"❌ مشكل في الاتصال: {e}")
+    st.stop()
+
+# دالات جلب وحفظ البيانات
+def load_data(sheet_name):
+    worksheet = sh.worksheet(sheet_name)
+    return pd.DataFrame(worksheet.get_all_records())
+
+def save_data(sheet_name, df):
+    worksheet = sh.worksheet(sheet_name)
+    worksheet.clear()
+    worksheet.update([df.columns.values.tolist()] + df.values.tolist())
+
+# ==========================================
+# 3️⃣ واجهة البرنامج (Sidebar)
+# ==========================================
 with st.sidebar:
-    st.image("https://via.placeholder.com/150x50?text=M-VAC+PRO", use_container_width=True)
-    st.markdown("---")
-    menu = st.radio(
-        "Menu Principal",
-        ["📊 Tableau de bord", "🛒 Ventes", "📦 Stock", "👥 Clients", "⚙️ Paramètres"]
-    )
+    st.title("M-VAC PRO 📦")
+    menu = st.radio("Navigation", ["📊 Dashboard", "🛒 Ventes & Factures", "👥 Clients"])
+    st.info(f"Connecté à: {sh.title}")
 
-# ---------------------------------------------------------
-# 4. وظيفة الـ DASHBOARD (الصفحة الرئيسية)
-# ---------------------------------------------------------
-if menu == "📊 Tableau de bord":
-    st.header("Tableau de Bord")
-    
-    # جلب البيانات للحساب
-    df_f = get_data("Facturations")
-    total_ca = df_f.iloc[:, 6].sum() if not df_f.empty else 0
-    
-    # رسم "الكارطات" بحال اللي في الصورة
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.markdown(f"""<div class='metric-card'>
-            <div class='metric-title'>📈 CHIFFRE D'AFFAIRES</div>
-            <div class='metric-value'>{total_ca:,.2f} DH</div>
-        </div>""", unsafe_allow_html=True)
-        
-    with col2:
-        st.markdown(f"""<div class='metric-card' style='border-left-color: #e67e22;'>
-            <div class='metric-title'>🧾 TOTAL FACTURES</div>
-            <div class='metric-value'>{len(df_f)}</div>
-        </div>""", unsafe_allow_html=True)
+# جلب البيانات الأساسية
+df_m = load_data("Materiels")
+df_c = load_data("Customers")
+df_f = load_data("Facturations")
 
-    # إضافة مبيان (Graph) بحال اللي لتحت في الصورة
-    st.subheader("Évolution des Ventes")
+# ==========================================
+# 📊 الجزء 1: Dashboard (لوحة التحكم)
+# ==========================================
+if menu == "📊 Dashboard":
+    st.subheader("Tableau de Bord")
+    
+    # حسابات سريعة
+    total_ca = pd.to_numeric(df_f['Total_TTC'], errors='coerce').sum() if not df_f.empty else 0
+    nb_ventes = len(df_f)
+    stock_alerte = len(df_m[pd.to_numeric(df_m['Stock'], errors='coerce') < 5])
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Chiffre d'Affaires", f"{total_ca:,.2f} DH")
+    c2.metric("Nombre de Ventes", nb_ventes)
+    c3.metric("Articles en Alerte Stock", stock_alerte, delta_color="inverse")
+
+    st.divider()
+    st.subheader("📈 Évolution des Ventes")
     if not df_f.empty:
-        # boucle بسيطة باش نقادو بيانات المبيان
-        chart_data = df_f.groupby(df_f.iloc[:, 1]).sum().iloc[:, 5] # التاريخ مع المجموع
-        st.line_chart(chart_data)
+        st.line_chart(df_f.set_index('Date')['Total_HT'])
 
-# ---------------------------------------------------------
-# 5. وظيفة المبيعات (Ventes) - الكود اللي خدمنا عليه
-# ---------------------------------------------------------
-elif menu == "🛒 Ventes":
-    st.subheader("Gestion des Ventes & Factures")
-    # ... هنا كيكون الكود ديال السلة والـ PDF اللي عطيتهوم ليك سابقا ...
-    st.info("هنا كتحط كود إضافة السلع والـ PDF")
+# ==========================================
+# 🛒 الجزء 2: Ventes & Factures (الخدمة ديالك)
+# ==========================================
+elif menu == "🛒 Ventes & Factures":
+    if 'cart' not in st.session_state: st.session_state.cart = []
+
+    st.markdown("<div class='article-card'><h3>➕ Ajouter un Article</h3></div>", unsafe_allow_html=True)
+    
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        s_item = st.selectbox("Sélectionner l'Article", df_m['Désignation'].unique())
+        row = df_m[df_m['Désignation'] == s_item].iloc[0]
+        
+        q = st.number_input("Quantité", min_value=0.1, value=1.0)
+        p = st.number_input("Prix Unitaire HT (DH)", value=float(row['Prix_HT']))
+    
+    with col2:
+        current_stock = float(row['Stock'])
+        st.write(f"**Stock disponible:** {current_stock} {row['Unité']}")
+        if st.button("➕ Ajouter au Panier", use_container_width=True):
+            if q > current_stock:
+                st.error("❌ الكمية المطلوبة كثر من الستوك!")
+            else:
+                st.session_state.cart.append({
+                    "Désignation": s_item, "Unité": row['Unité'], 
+                    "Qte": q, "P.U": p, "Total": q*p
+                })
+                st.rerun()
+
+    # عرض السلة والتحكم
+    if st.session_state.cart:
+        st.subheader("🧾 Récapitulatif de la Commande")
+        df_cart = pd.DataFrame(st.session_state.cart)
+        st.table(df_cart)
+        
+        total_ht = df_cart['Total'].sum()
+        total_ttc = total_ht * 1.2
+        
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            d_type = st.radio("Document", ["DEVIS", "FACTURE"], horizontal=True)
+            s_client = st.selectbox("Client", df_c['Nom'].unique() if not df_c.empty else ["Client Standard"])
+        
+        with col_f2:
+            st.metric("TOTAL TTC", f"{total_ttc:,.2f} DH")
+            st.write(f"**En lettres:** {num2words(total_ttc, lang='fr').upper()} DH")
+
+        if st.button("💾 Valider et Enregistrer la Transaction", type="primary", use_container_width=True):
+            # 1. تحديث الستوك في جدول Materiels (فقط للفاتورة)
+            if d_type == "FACTURE":
+                for item in st.session_state.cart:
+                    idx = df_m[df_m['Désignation'] == item['Désignation']].index[0]
+                    df_m.at[idx, 'Stock'] = float(df_m.at[idx, 'Stock']) - item['Qte']
+                save_data("Materiels", df_m)
+
+            # 2. تسجيل الفاتورة في جدول Facturations
+            new_ref = f"MVAC-{datetime.now().strftime('%y%m%d%H%M')}"
+            new_row = {
+                "ID": len(df_f)+1, "Date": datetime.now().strftime("%d/%m/%Y"),
+                "Référence": new_ref, "Client": s_client,
+                "Total_HT": total_ht, "TVA": total_ht*0.2,
+                "Total_TTC": total_ttc, "Type": d_type
+            }
+            df_f = pd.concat([df_f, pd.DataFrame([new_row])], ignore_index=True)
+            save_data("Facturations", df_f)
+
+            st.session_state.cart = []
+            st.success(f"✅ تم تسجيل {d_type} بنجاح!")
+            st.rerun()
+
+        if st.button("🗑️ Vider le panier"):
+            st.session_state.cart = []
+            st.rerun()

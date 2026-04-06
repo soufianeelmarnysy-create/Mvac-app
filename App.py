@@ -167,13 +167,13 @@ elif page == "📦 إدارة السلعة":
 # 📄 5. صفحة الفاتورة (Facturation)
 # ========================================================================================================================================================================
 # =========================================================
-# 📄 5. صفحة الفاتورة المطورة (Facturation PRO)
+# 📄 5. دالة صفحة الفاتورة (show_facturation_page)
 # =========================================================
 
-elif page == "📄 Devis / Facture":
+def show_facturation_page():
     st.header("📄 Création Devis & Facture")
 
-    # 1. تحميل البيانات وتنقيتها
+    # 1. تحميل البيانات وتنقيتها من السطور الخاوية
     df_c = load_data("Customers").dropna(how='all')
     df_m = load_data("Materiels").dropna(how='all')
     df_f = load_data("Facturations").dropna(how='all')
@@ -182,37 +182,40 @@ elif page == "📄 Devis / Facture":
     if 'cart' not in st.session_state: 
         st.session_state.cart = []
 
-    # --- القسم 1: معلومات المستند ---
+    # --- القسم 1: معلومات المستند (Client & Type) ---
     with st.container(border=True):
         c1, c2, c3 = st.columns([1, 2, 1])
-        doc_type = c1.selectbox("Type", ["DEVIS", "FACTURE"])
+        doc_type = c1.selectbox("Type", ["DEVIS", "FACTURE"], key="doc_type_mvac")
         
-        # جلب أسماء الكليان من العمود رقم 2 (Index 2)
-        clients = df_c.iloc[:, 2].dropna().tolist() if not df_c.empty else ["Passager"]
-        s_client = c2.selectbox("Client", clients)
+        # جلب أسماء الكليان من العمود رقم 2 (الاسم/الشركة)
+        clients = df_c.iloc[:, 2].dropna().unique().tolist() if not df_c.empty else ["Passager"]
+        s_client = c2.selectbox("Client", clients, key="client_mvac")
         d_ref = c3.text_input("Référence", value=f"{doc_type[0]}-{datetime.now().strftime('%d%H%M')}")
 
     # --- القسم 2: اختيار السلعة وملء البيانات أوتوماتيكياً ---
     with st.container(border=True):
         st.subheader("📦 Ajouter des articles")
         # السلع كاينة في العمود رقم 2 (Index 2)
-        articles = df_m.iloc[:, 2].dropna().tolist() if not df_m.empty else []
-        sel_art = st.selectbox("Choisir l'article", [""] + articles)
+        articles = df_m.iloc[:, 2].dropna().unique().tolist() if not df_m.empty else []
+        sel_art = st.selectbox("Choisir l'article", [""] + articles, key="article_sel")
         
         u_v, s_v, p_v = "", 0.0, 0.0
         if sel_art:
-            # كنجبدو السطر الخاص بالسلعة المختارة
+            # كنجبدو السطر الخاص بالسلعة المختارة باستعمال iloc لتفادي مشاكل الأسماء
             row = df_m[df_m.iloc[:, 2] == sel_art].iloc[0]
             u_v = str(row.iloc[3])  # الوحدة (Index 3)
             s_v = float(row.iloc[4]) # الستوك (Index 4)
             # الثمن (Index 5) مع تحويل الفاصلة
-            p_v = float(str(row.iloc[5]).replace(',', '.').strip())
+            try:
+                p_v = float(str(row.iloc[5]).replace(',', '.').strip())
+            except:
+                p_v = 0.0
 
         i1, i2, i3, i4, i5 = st.columns([1, 1, 1, 1, 1])
         i1.metric("Unité", u_v)
         i2.metric("Stock", s_v)
-        q_in = i3.number_input("Qté", min_value=0.1, value=1.0)
-        p_in = i4.number_input("Prix HT", value=p_v)
+        q_in = i3.number_input("Qté", min_value=0.1, value=1.0, key="qty_in")
+        p_in = i4.number_input("Prix HT", value=p_v, key="price_in")
 
         if i5.button("➕ Ajouter", use_container_width=True):
             if sel_art:
@@ -237,13 +240,14 @@ elif page == "📄 Devis / Facture":
 
         st.info(f"**Total HT:** {t_ht:,.2f} DH | **TVA (20%):** {t_tva:,.2f} DH | **TOTAL TTC:** {t_ttc:,.2f} DH")
 
-        # --- القسم 4: الحفظ النهائي (حل مشكلة عدم تطابق الأعمدة) ---
-        if st.button("💾 Enregistrer Document Final", type="primary", use_container_width=True):
-            # تحديد الشيت والبيانات الحالية
+        # --- القسم 4: الحفظ النهائي (الميزان) و PDF ---
+        b1, b2 = st.columns(2)
+        
+        if b1.button("💾 Enregistrer Document Final", type="primary", use_container_width=True):
             target_sheet = "Facturations" if doc_type == "FACTURE" else "Devis"
             existing_df = df_f if doc_type == "FACTURE" else df_d
             
-            # تجهيز السطر الجديد
+            # تجهيز السطر الجديد (ID, Date, Ref, Client, HT, TVA, TTC)
             new_row_data = [
                 len(existing_df) + 1, 
                 datetime.now().strftime("%d/%m/%Y"), 
@@ -254,7 +258,7 @@ elif page == "📄 Devis / Facture":
                 t_ttc
             ]
 
-            # ميزان الأعمدة: إضافة فراغات إذا كان الشيت فيه أعمدة أكثر
+            # ميزان الأعمدة: إضافة فراغات إذا كان الشيت فيه أعمدة أكثر لتفادي ValueError
             if len(new_row_data) < len(existing_df.columns):
                 new_row_data += [""] * (len(existing_df.columns) - len(new_row_data))
             elif len(new_row_data) > len(existing_df.columns):
@@ -264,28 +268,24 @@ elif page == "📄 Devis / Facture":
             new_row_df = pd.DataFrame([new_row_data], columns=existing_df.columns)
             updated_df = pd.concat([existing_df, new_row_df], ignore_index=True)
             
-            save_data(target_sheet, updated_df)
-            
-            # تحديث الستوك في حالة الفاتورة فقط
-            if doc_type == "FACTURE":
-                for item in st.session_state.cart:
-                    m_idx = df_m[df_m.iloc[:, 2] == item['Désignation']].index[0]
-                    df_m.iloc[m_idx, 4] -= item['Qte']
-                save_data("Materiels", df_m)
+            if save_data(target_sheet, updated_df):
+                # تحديث الستوك في حالة الفاتورة فقط
+                if doc_type == "FACTURE":
+                    for item in st.session_state.cart:
+                        m_idx = df_m[df_m.iloc[:, 2] == item['Désignation']].index[0]
+                        df_m.iloc[m_idx, 4] -= item['Qte']
+                    save_data("Materiels", df_m)
 
-            st.success("✅ تم الحفظ بنجاح في Google Sheets!")
-            
-            # توليد PDF للتحميل
-            pdf_data = generate_pdf(doc_type, d_ref, s_client, st.session_state.cart, t_ht, t_tva, t_ttc)
-            st.download_button("📥 Télécharger le PDF", data=pdf_data, file_name=f"{d_ref}.pdf", mime="application/pdf")
-            
-            # اختيار مسح السلة أو تركها
-            if st.button("🆕 Nouveau Document"):
-                st.session_state.cart = []
-                st.rerun()
+                st.success("✅ Enregistré avec succès !")
+                
+                # توليد PDF
+                pdf_data = generate_pdf(doc_type, d_ref, s_client, st.session_state.cart, t_ht, t_tva, t_ttc)
+                st.download_button("📥 Télécharger le PDF", data=pdf_data, file_name=f"{d_ref}.pdf", mime="application/pdf")
 
-if page == "🏠 Accueil":
-    st.title("Bienvenue dans M-VAC PRO")
+        if b2.button("🔄 Nouveau Document", use_container_width=True):
+            st.session_state.cart = []
+            st.rerun()
 
-elif page == "📄 Devis / Facture":
+# --- الجزء الخاص بمناداة الصفحة في القائمة الرئيسية ---
+if page == "📄 Devis / Facture":
     show_facturation_page()

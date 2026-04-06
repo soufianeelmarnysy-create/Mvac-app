@@ -166,89 +166,47 @@ elif page == "📦 إدارة السلعة":
 # =========================================================
 # 📄 5. صفحة الفاتورة (Facturation)
 # ========================================================================================================================================================================
-import streamlit as st
-import pandas as pd
-from datetime import datetime
-from fpdf import FPDF
-import io
+# =========================================================
+# 📄 5. صفحة الفاتورة المطورة (Facturation PRO)
+# =========================================================
 
-# =========================================================
-# 1. دالة توليد الـ PDF
-# =========================================================
-def generate_pdf(doc_type, ref, client, items, total_ht, tva, ttc):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", 'B', 16)
-    pdf.cell(0, 10, f"M-VAC PRO - {doc_type}", ln=True, align='C')
-    
-    pdf.set_font("Arial", '', 12)
-    pdf.ln(10)
-    pdf.cell(0, 8, f"Reference: {ref}", ln=True)
-    pdf.cell(0, 8, f"Client: {client}", ln=True)
-    pdf.cell(0, 8, f"Date: {datetime.now().strftime('%d/%m/%Y')}", ln=True)
-    pdf.ln(5)
-    
-    # الجدول
-    pdf.set_fill_color(230, 230, 230)
-    pdf.set_font("Arial", 'B', 11)
-    pdf.cell(80, 10, "Article", 1, 0, 'C', True)
-    pdf.cell(25, 10, "Qte", 1, 0, 'C', True)
-    pdf.cell(40, 10, "P.U HT", 1, 0, 'C', True)
-    pdf.cell(45, 10, "Total HT", 1, 1, 'C', True)
-    
-    pdf.set_font("Arial", '', 10)
-    for item in items:
-        pdf.cell(80, 10, str(item['Désignation'])[:40], 1)
-        pdf.cell(25, 10, str(item['Qte']), 1, 0, 'C')
-        pdf.cell(40, 10, f"{item['PU_HT']:,.2f}", 1, 0, 'C')
-        pdf.cell(45, 10, f"{item['Total']:,.2f}", 1, 1, 'C')
-    
-    pdf.ln(10)
-    pdf.cell(145, 10, "Total HT", 0, 0, 'R')
-    pdf.cell(45, 10, f"{total_ht:,.2f} DH", 1, 1, 'C')
-    pdf.cell(145, 10, "TVA (20%)", 0, 0, 'R')
-    pdf.cell(45, 10, f"{tva:,.2f} DH", 1, 1, 'C')
-    pdf.set_font("Arial", 'B', 11)
-    pdf.cell(145, 10, "TOTAL TTC", 0, 0, 'R')
-    pdf.set_fill_color(200, 220, 255)
-    pdf.cell(45, 10, f"{ttc:,.2f} DH", 1, 1, 'C', True)
-    
-    return pdf.output(dest='S').encode('latin-1')
-
-# =========================================================
-# 2. الدالة الرئيسية لصفحة الفاتورة
-# =========================================================
-def show_facturation_page():
+elif page == "📄 Devis / Facture":
     st.header("📄 Création Devis & Facture")
 
-    # تحميل البيانات
+    # 1. تحميل البيانات وتنقيتها
     df_c = load_data("Customers").dropna(how='all')
     df_m = load_data("Materiels").dropna(how='all')
     df_f = load_data("Facturations").dropna(how='all')
     df_d = load_data("Devis").dropna(how='all')
 
-    if 'cart' not in st.session_state:
+    if 'cart' not in st.session_state: 
         st.session_state.cart = []
 
     # --- القسم 1: معلومات المستند ---
     with st.container(border=True):
         c1, c2, c3 = st.columns([1, 2, 1])
         doc_type = c1.selectbox("Type", ["DEVIS", "FACTURE"])
+        
+        # جلب أسماء الكليان من العمود رقم 2 (Index 2)
         clients = df_c.iloc[:, 2].dropna().tolist() if not df_c.empty else ["Passager"]
         s_client = c2.selectbox("Client", clients)
         d_ref = c3.text_input("Référence", value=f"{doc_type[0]}-{datetime.now().strftime('%d%H%M')}")
 
-    # --- القسم 2: اختيار السلعة ---
+    # --- القسم 2: اختيار السلعة وملء البيانات أوتوماتيكياً ---
     with st.container(border=True):
+        st.subheader("📦 Ajouter des articles")
+        # السلع كاينة في العمود رقم 2 (Index 2)
         articles = df_m.iloc[:, 2].dropna().tolist() if not df_m.empty else []
         sel_art = st.selectbox("Choisir l'article", [""] + articles)
         
         u_v, s_v, p_v = "", 0.0, 0.0
         if sel_art:
+            # كنجبدو السطر الخاص بالسلعة المختارة
             row = df_m[df_m.iloc[:, 2] == sel_art].iloc[0]
-            u_v = str(row.iloc[3])
-            s_v = float(row.iloc[4])
-            p_v = float(str(row.iloc[5]).replace(',', '.'))
+            u_v = str(row.iloc[3])  # الوحدة (Index 3)
+            s_v = float(row.iloc[4]) # الستوك (Index 4)
+            # الثمن (Index 5) مع تحويل الفاصلة
+            p_v = float(str(row.iloc[5]).replace(',', '.').strip())
 
         i1, i2, i3, i4, i5 = st.columns([1, 1, 1, 1, 1])
         i1.metric("Unité", u_v)
@@ -259,11 +217,15 @@ def show_facturation_page():
         if i5.button("➕ Ajouter", use_container_width=True):
             if sel_art:
                 st.session_state.cart.append({
-                    "Désignation": sel_art, "Unité": u_v, "Qte": q_in, "PU_HT": p_in, "Total": q_in * p_in
+                    "Désignation": sel_art, 
+                    "Unité": u_v, 
+                    "Qte": q_in, 
+                    "PU_HT": p_in, 
+                    "Total": q_in * p_in
                 })
                 st.rerun()
 
-    # --- القسم 3: الجدول والحسابات ---
+    # --- القسم 3: عرض السلة وحساب المجاميع ---
     if st.session_state.cart:
         st.subheader("📋 Liste des Articles")
         df_cart = pd.DataFrame(st.session_state.cart)
@@ -273,47 +235,54 @@ def show_facturation_page():
         t_tva = t_ht * 0.2
         t_ttc = t_ht + t_tva
 
-        col_tot1, col_tot2 = st.columns([2, 1])
-        with col_tot2:
-            st.write(f"**Total HT:** {t_ht:,.2f} DH")
-            st.write(f"**TVA (20%):** {t_tva:,.2f} DH")
-            st.write(f"### **TOTAL TTC:** {t_ttc:,.2f} DH")
+        st.info(f"**Total HT:** {t_ht:,.2f} DH | **TVA (20%):** {t_tva:,.2f} DH | **TOTAL TTC:** {t_ttc:,.2f} DH")
 
-        # --- الحفظ النهائي ---
+        # --- القسم 4: الحفظ النهائي (حل مشكلة عدم تطابق الأعمدة) ---
         if st.button("💾 Enregistrer Document Final", type="primary", use_container_width=True):
+            # تحديد الشيت والبيانات الحالية
             target_sheet = "Facturations" if doc_type == "FACTURE" else "Devis"
             existing_df = df_f if doc_type == "FACTURE" else df_d
             
-            new_row_data = [len(existing_df) + 1, datetime.now().strftime("%d/%m/%Y"), d_ref, s_client, t_ht, t_tva, t_ttc]
+            # تجهيز السطر الجديد
+            new_row_data = [
+                len(existing_df) + 1, 
+                datetime.now().strftime("%d/%m/%Y"), 
+                d_ref, 
+                s_client, 
+                t_ht, 
+                t_tva, 
+                t_ttc
+            ]
 
-            # موازنة الأعمدة
+            # ميزان الأعمدة: إضافة فراغات إذا كان الشيت فيه أعمدة أكثر
             if len(new_row_data) < len(existing_df.columns):
                 new_row_data += [""] * (len(existing_df.columns) - len(new_row_data))
-            
+            elif len(new_row_data) > len(existing_df.columns):
+                new_row_data = new_row_data[:len(existing_df.columns)]
+
+            # دمج السطر الجديد وحفظه
             new_row_df = pd.DataFrame([new_row_data], columns=existing_df.columns)
             updated_df = pd.concat([existing_df, new_row_df], ignore_index=True)
             
-            # حفظ البيانات وتحديث الستوك
             save_data(target_sheet, updated_df)
+            
+            # تحديث الستوك في حالة الفاتورة فقط
             if doc_type == "FACTURE":
                 for item in st.session_state.cart:
-                    idx = df_m[df_m.iloc[:, 2] == item['Désignation']].index[0]
-                    df_m.iloc[idx, 4] -= item['Qte']
+                    m_idx = df_m[df_m.iloc[:, 2] == item['Désignation']].index[0]
+                    df_m.iloc[m_idx, 4] -= item['Qte']
                 save_data("Materiels", df_m)
 
-            # توليد الـ PDF
-            pdf_data = generate_pdf(doc_type, d_ref, s_client, st.session_state.cart, t_ht, t_tva, t_ttc)
-            st.success("✅ Document enregistré !")
-            st.download_button("📥 Télécharger PDF", data=pdf_data, file_name=f"{d_ref}.pdf", mime="application/pdf")
+            st.success("✅ تم الحفظ بنجاح في Google Sheets!")
             
-            # مسح السلة
-            st.session_state.cart = []
-
-# =========================================================
-# 3. نظام التنقل (Navigation)
-# =========================================================
-# تأكد أن هاد الجزء هو اللي كاين في آخر السكربت ديالك
-page = st.sidebar.radio("Menu", ["🏠 Accueil", "📄 Devis / Facture"])
+            # توليد PDF للتحميل
+            pdf_data = generate_pdf(doc_type, d_ref, s_client, st.session_state.cart, t_ht, t_tva, t_ttc)
+            st.download_button("📥 Télécharger le PDF", data=pdf_data, file_name=f"{d_ref}.pdf", mime="application/pdf")
+            
+            # اختيار مسح السلة أو تركها
+            if st.button("🆕 Nouveau Document"):
+                st.session_state.cart = []
+                st.rerun()
 
 if page == "🏠 Accueil":
     st.title("Bienvenue dans M-VAC PRO")
